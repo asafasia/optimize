@@ -18,7 +18,7 @@ from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, Ex
 from qratena.util.sweeps_utils import MidIntervalArray
 from qratena.util.sweeps_utils import MidIntervalArray
 
-from resources.load_profile import load_profile
+from resources.load_profile import load_profile, load_task_manager
 from resources import *
 
 
@@ -93,11 +93,13 @@ class ReadoutFidelityWorkflow:
         self.kernel_handler = handler
 
         with self._optional_output_suppression():
-            result = self._submit_handler(handler)
-
+            result = self._submit_kernel_handler(handler)
+            
+            
         self._load_handler_result(handler, result)
+        # self._analyze_handler_result(handler)
 
-        return result
+        return handler.data
 
     def run_iq_blobs_node(self) -> Any:
         handler = self._build_iq_blobs_handler()
@@ -112,6 +114,9 @@ class ReadoutFidelityWorkflow:
     def _submit_handler(self, handler) -> Any:
         compiled_experiment = handler.get_compiled_experiment()
 
+        return self._submit_compiled_experiment(handler, compiled_experiment)
+
+    def _submit_compiled_experiment(self, handler, compiled_experiment) -> Any:
         return self.task_manager.wait(
             self.task_manager.run_compiled_experiment(
                 handler.experiment_name,
@@ -122,6 +127,58 @@ class ReadoutFidelityWorkflow:
             )
         )
 
+    def _submit_kernel_handler(self, handler: KernelTracesCalculationHandler) -> Any:
+        handler.define_experiment()
+
+        compiled_experiment_0 = self._compile_kernel_experiment(
+            handler,
+            handler.experiment_0,
+        )
+        compiled_experiment_1 = self._compile_kernel_experiment(
+            handler,
+            handler.experiment_1,
+        )
+
+        handler.experiment_0_result = self._submit_compiled_experiment(
+            handler,
+            compiled_experiment_0,
+        )
+        handler.experiment_1_result = self._submit_compiled_experiment(
+            handler,
+            compiled_experiment_1,
+        )
+
+        return handler.experiment_0_result, handler.experiment_1_result
+
+    def _compile_kernel_experiment(
+        self,
+        handler: KernelTracesCalculationHandler,
+        experiment: Any,
+    ) -> Any:
+        original_experiment = getattr(handler, "experiment", None)
+        had_experiment = hasattr(handler, "experiment")
+        original_compiled_experiment = getattr(handler, "compiled_experiment", None)
+        had_compiled_experiment = hasattr(handler, "compiled_experiment")
+
+        handler.experiment = experiment
+        if had_compiled_experiment:
+            delattr(handler, "compiled_experiment")
+
+        try:
+            compiled_experiment = handler.execution_core.get_compiled_experiment(
+                experiment
+            )
+            handler.compiled_experiment = compiled_experiment
+            return compiled_experiment
+        finally:
+            if had_experiment:
+                handler.experiment = original_experiment
+            else:
+                delattr(handler, "experiment")
+
+            if had_compiled_experiment:
+                handler.compiled_experiment = original_compiled_experiment
+
     def _load_handler_result(self, handler: ExperimentHandler, result: Any) -> None:
         """Convert task-manager result into the handler's normal data format.
 
@@ -129,6 +186,10 @@ class ReadoutFidelityWorkflow:
         """
         with self._optional_output_suppression():
             handler.load_result(result)
+        self._analyze_handler_result(handler)
+
+    def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
+        with self._optional_output_suppression():
             handler.analyze()
 
         if not self.settings.plot_handlers:
@@ -208,9 +269,6 @@ class ReadoutFidelityWorkflow:
             settings=settings,
         )
 
-        with self._optional_output_suppression():
-            handler.run()
-
         return handler
 
     def _build_iq_blobs_handler(self):
@@ -238,25 +296,22 @@ if __name__ == "__main__":
 
     profile = load_profile()
 
+    task_manager = load_task_manager()
+
     readout_pulse = profile.qubits[qubit_names[0]].pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
-    readout_pulse.readout_amplitude = 0.07
-
-    task_manager = TaskSubmitterAsync(
-        api_uri=API_URI,
-        redis_uri=REDIS_URI,
-        username=USERNAME,
-        password=PASSWORD
-    )
+    # readout_pulse.readout_amplitude = 0.07
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
         run_resonator=False,
-        run_kernels=False,
+        run_kernels=True,
         run_iq_blobs=True,
+        display_handler_plots=True,
+        suppress_handler_output=True,
     )
 
     workflow = ReadoutFidelityWorkflow(
