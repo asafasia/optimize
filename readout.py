@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
@@ -11,11 +11,10 @@ from qigeon.io.task_submitter import TaskSubmitterAsync
 from qratena.system.components_params.profile import Profile
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES
 
-from optimize.readout_sweep_artifacts import (
-    ReadoutAmplitudeSweepAnalysis,
-    ReadoutAmplitudeSweepPlotter,
-    ReadoutAmplitudeSweepSaver,
-)
+from optimize.readout_scan_methods import scan_method_for
+from optimize.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
+from optimize.readout_sweep_artifacts import ReadoutAmplitudeSweepSaver
+from optimize.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
 from optimize.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
 from resources.load_profile import load_task_manager
 
@@ -23,6 +22,11 @@ from resources.load_profile import load_task_manager
 @dataclass(slots=True)
 class ReadoutAmplitudeSweepSettings:
     amplitudes: Any
+    method: Literal["sweep", "gradient"] = "sweep"
+    gradient_max_iterations: int = 5
+    gradient_initial_step: float | None = None
+    gradient_min_step: float = 0.001
+    gradient_fidelity_tolerance: float = 0.01
     profile_path: str | Path | None = None
     show_progress: bool = True
     workflow_settings: ReadoutFidelityWorkflowSettings = field(
@@ -47,6 +51,7 @@ class ReadoutAmplitudeSweepWorkflow:
 
         self.workflows: dict[float, ReadoutFidelityWorkflow] = {}
         self.results: dict[float, dict[str, Any]] = {}
+        self.measured_amplitudes: list[float] = []
         self.fidelities: dict[str, list[float]] = {
             qubit_name: [] for qubit_name in self.qubit_names
         }
@@ -57,28 +62,13 @@ class ReadoutAmplitudeSweepWorkflow:
     def run(self) -> dict[float, dict[str, Any]]:
         self.workflows = {}
         self.results = {}
+        self.measured_amplitudes = []
         self.fidelities = {qubit_name: [] for qubit_name in self.qubit_names}
         self.iq_blob_figures = {}
 
-        amplitudes = list(self.settings.amplitudes)
-        for index, amplitude in enumerate(amplitudes, start=1):
-            self._show_progress(index, len(amplitudes), float(amplitude))
-            self._set_readout_amplitude(amplitude)
+        scan_method_for(self).run()
 
-            workflow = ReadoutFidelityWorkflow(
-                qubit_names=self.qubit_names,
-                profile=self.profile,
-                task_manager=self.task_manager,
-                settings=self.settings.workflow_settings,
-            )
-
-            self.workflows[amplitude] = workflow
-            result = workflow.run()
-            self.results[amplitude] = result
-            self._record_fidelities(result)
-            self._record_iq_blob_figures(amplitude, workflow)
-
-        self._finish_progress(len(amplitudes))
+        self._finish_progress(len(self.measured_amplitudes))
         return self.results
 
     def plot(self) -> Figure:
@@ -87,7 +77,7 @@ class ReadoutAmplitudeSweepWorkflow:
 
         plotter = ReadoutAmplitudeSweepPlotter(
             self.qubit_names,
-            self.settings.amplitudes,
+            self.measured_amplitudes,
             self.fidelities,
         )
         plotter.initial_amplitudes = self.initial_amplitudes
@@ -101,7 +91,7 @@ class ReadoutAmplitudeSweepWorkflow:
 
         return ReadoutAmplitudeSweepAnalysis(
             qubit_names=self.qubit_names,
-            amplitudes=self.settings.amplitudes,
+            amplitudes=self.measured_amplitudes,
             fidelities=self.fidelities,
             initial_amplitudes=self.initial_amplitudes,
         ).summary()
@@ -116,7 +106,7 @@ class ReadoutAmplitudeSweepWorkflow:
 
         saver = ReadoutAmplitudeSweepSaver(
             qubit_names=self.qubit_names,
-            amplitudes=self.settings.amplitudes,
+            amplitudes=self.measured_amplitudes,
             fidelities=self.fidelities,
             results=self.results,
             profile=self.profile,
@@ -127,6 +117,40 @@ class ReadoutAmplitudeSweepWorkflow:
         saver.iq_blob_figures = self.iq_blob_figures
 
         return saver.save(output_dir=output_dir, figure=figure)
+
+    def _measure_amplitude(self, amplitude: float) -> float:
+        amplitude = float(amplitude)
+        if amplitude in self.results:
+            return self._score_result(self.results[amplitude])
+
+        self._set_readout_amplitude(amplitude)
+
+        workflow = ReadoutFidelityWorkflow(
+            qubit_names=self.qubit_names,
+            profile=self.profile,
+            task_manager=self.task_manager,
+            settings=self.settings.workflow_settings,
+        )
+
+        self.workflows[amplitude] = workflow
+        result = workflow.run()
+        self.results[amplitude] = result
+        self.measured_amplitudes.append(amplitude)
+        self._record_fidelities(result)
+        self._record_iq_blob_figures(amplitude, workflow)
+
+        return self._score_result(result)
+
+    def _score_result(self, result: dict[str, Any]) -> float:
+        iq_results = result["iq_blobs"]
+        return float(
+            np.mean(
+                [
+                    iq_results[qubit_name]["readout_fidelity"]
+                    for qubit_name in self.qubit_names
+                ]
+            )
+        )
 
     def _set_readout_amplitude(self, amplitude: float) -> None:
         for qubit_name in self.qubit_names:
@@ -179,7 +203,7 @@ class ReadoutAmplitudeSweepWorkflow:
         bar = "#" * completed + "-" * (width - completed)
         percent = 100 * (index - 1) / total
         print(
-            f"\rAmplitude sweep [{bar}] {index - 1}/{total} "
+            f"\rReadout optimization [{bar}] {index - 1}/{total} "
             f"({percent:5.1f}%) current={amplitude:.6g}",
             end="",
             flush=True,
@@ -190,7 +214,7 @@ class ReadoutAmplitudeSweepWorkflow:
             return
 
         bar = "#" * 30
-        print(f"\rAmplitude sweep [{bar}] {total}/{total} (100.0%) complete")
+        print(f"\rReadout optimization [{bar}] {total}/{total} (100.0%) complete")
 
 
 if __name__ == "__main__":
@@ -209,15 +233,16 @@ if __name__ == "__main__":
         run_kernels=True,
         run_iq_blobs=True,
         display_handler_plots=False,
-        suppress_handler_output=False,
+        suppress_handler_output=True,
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.2, 30),
+        amplitudes=np.linspace(0.001, 0.1, 10),
         workflow_settings=workflow_settings,
+        method="gradient",
     )
 
-    qubits = ['q5']
+    qubits = ['q4']
     
     for qubit_name in qubits:
 
@@ -232,5 +257,7 @@ if __name__ == "__main__":
         fig = optimizer.plot()
         optimizer.save_results(figure=fig)
         plt.show()
+        
+        
 
 # %%

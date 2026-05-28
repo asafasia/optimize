@@ -259,7 +259,7 @@ class ReadoutFidelityWorkflow:
     def _build_kernel_handler(self):
         settings = ExperimentSettings(
             log_level=0,
-            num_shots=1000,
+            num_shots=5000,
             exportation_method=ExportationMethod.NONE,
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
@@ -313,7 +313,7 @@ if __name__ == "__main__":
         run_kernels=True,
         run_iq_blobs=True,
         display_handler_plots=True,
-        suppress_handler_output=True,
+        suppress_handler_output=False,
     )
 
     workflow = ReadoutFidelityWorkflow(
