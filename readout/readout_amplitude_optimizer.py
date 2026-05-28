@@ -33,6 +33,8 @@ class ReadoutAmplitudeSweepSettings:
     golden_section_interval_tolerance: float = 0.001
     fill_unfinished_on_interrupt: bool = True
     unfinished_fidelity: float = 0.5
+    continue_on_measurement_error: bool = True
+    failed_measurement_fidelity: float = 0.5
     profile_path: str | Path | None = None
     show_progress: bool = True
     workflow_settings: ReadoutFidelityWorkflowSettings = field(
@@ -68,6 +70,7 @@ class ReadoutAmplitudeSweepWorkflow:
             qubit_name: [] for qubit_name in self.qubit_names
         }
         self.iq_blob_figures: dict[float, list[Figure]] = {}
+        self.measurement_errors: dict[float, str] = {}
         self.initial_amplitudes = self._readout_amplitudes()
         self.readout_lengths = self._readout_lengths()
         self.reset_label = self._reset_label()
@@ -84,6 +87,7 @@ class ReadoutAmplitudeSweepWorkflow:
         }
         self.separations = {qubit_name: [] for qubit_name in self.qubit_names}
         self.iq_blob_figures = {}
+        self.measurement_errors = {}
         self.interrupted = False
         self.interrupt_reason = None
 
@@ -129,6 +133,7 @@ class ReadoutAmplitudeSweepWorkflow:
         ).summary()
         summary["interrupted"] = self.interrupted
         summary["interrupt_reason"] = self.interrupt_reason
+        summary["measurement_errors"] = self.measurement_errors
         return summary
 
     def save_results(
@@ -156,6 +161,7 @@ class ReadoutAmplitudeSweepWorkflow:
         saver.interrupt_reason = self.interrupt_reason
         saver.reset_label = self.reset_label
         saver.scan_method = str(ReadoutScanMethod(self.settings.method).value)
+        saver.measurement_errors = self.measurement_errors
 
         return saver.save(output_dir=output_dir, figure=figure)
 
@@ -174,7 +180,16 @@ class ReadoutAmplitudeSweepWorkflow:
         )
 
         self.workflows[amplitude] = workflow
-        result = workflow.run()
+        try:
+            result = workflow.run()
+        except (KeyboardInterrupt, EOFError):
+            raise
+        except Exception as error:
+            if not self.settings.continue_on_measurement_error:
+                raise
+
+            return self._record_failed_measurement(amplitude, error)
+
         self.results[amplitude] = result
         self.measured_amplitudes.append(amplitude)
         self._record_fidelities(result)
@@ -183,6 +198,9 @@ class ReadoutAmplitudeSweepWorkflow:
         return self._score_result(result)
 
     def _score_result(self, result: dict[str, Any]) -> float:
+        if "iq_blobs" not in result:
+            return float(self.settings.failed_measurement_fidelity)
+
         iq_results = result["iq_blobs"]
         return float(
             np.mean(
@@ -192,6 +210,30 @@ class ReadoutAmplitudeSweepWorkflow:
                 ]
             )
         )
+
+    def _record_failed_measurement(
+        self,
+        amplitude: float,
+        error: Exception,
+    ) -> float:
+        error_message = f"{type(error).__name__}: {error}"
+        self.results[amplitude] = {"error": error_message}
+        self.measurement_errors[amplitude] = error_message
+        self.measured_amplitudes.append(amplitude)
+
+        for qubit_name in self.qubit_names:
+            self.fidelities[qubit_name].append(
+                float(self.settings.failed_measurement_fidelity)
+            )
+            self.fidelity_errors[qubit_name].append(None)
+            self.separations[qubit_name].append(None)
+
+        print(
+            f"\nMeasurement failed at amplitude {amplitude:.6g}; "
+            f"recorded fidelity={self.settings.failed_measurement_fidelity}. "
+            f"{error_message}"
+        )
+        return float(self.settings.failed_measurement_fidelity)
 
     def _set_readout_amplitude(self, amplitude: float) -> None:
         for qubit_name in self.qubit_names:
@@ -350,7 +392,7 @@ if __name__ == "__main__":
         method=ReadoutScanMethod.SWEEP,
     )
 
-    qubits = ['q11']
+    qubits = profile.qubits.keys()
     
     for qubit_name in qubits:
 
@@ -367,5 +409,3 @@ if __name__ == "__main__":
         plt.show()
         
         
-
-# %%

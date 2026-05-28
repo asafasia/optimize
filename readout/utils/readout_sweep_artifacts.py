@@ -45,6 +45,7 @@ class ReadoutAmplitudeSweepSaver:
         self.interrupt_reason: str | None = None
         self.reset_label: str | None = None
         self.scan_method: str = "unknown"
+        self.measurement_errors: dict[float, str] = {}
 
     def save(
         self,
@@ -61,6 +62,7 @@ class ReadoutAmplitudeSweepSaver:
         summary["interrupted"] = self.interrupted
         summary["interrupt_reason"] = self.interrupt_reason
         summary["scan_method"] = self.scan_method
+        summary["measurement_errors"] = self.measurement_errors
 
         np.savez_compressed(
             run_dir / "data.npz",
@@ -69,6 +71,7 @@ class ReadoutAmplitudeSweepSaver:
             fidelity_errors=np.array([self.fidelity_errors], dtype=object),
             separations=np.array([self.separations], dtype=object),
             results=np.array([self.results], dtype=object),
+            measurement_errors=np.array([self.measurement_errors], dtype=object),
         )
 
         profile_status = self._save_profile(run_dir)
@@ -111,6 +114,8 @@ class ReadoutAmplitudeSweepSaver:
                     *[f"{qubit}_fidelity_error" for qubit in self.qubit_names],
                     *[f"{qubit}_separation" for qubit in self.qubit_names],
                     "mean_fidelity",
+                    "status",
+                    "error",
                 ]
             )
 
@@ -134,6 +139,8 @@ class ReadoutAmplitudeSweepSaver:
                         *row_errors,
                         *row_separations,
                         float(np.mean(row_fidelities)),
+                        self._measurement_status(float(amplitude)),
+                        self.measurement_errors.get(float(amplitude), ""),
                     ]
                 )
 
@@ -185,6 +192,19 @@ class ReadoutAmplitudeSweepSaver:
                 f"{qubit_summary['final_fidelity']} |"
             )
 
+        if summary.get("measurement_errors"):
+            lines.extend(
+                [
+                    "",
+                    "## Measurement Errors",
+                    "",
+                    "| Amplitude | Error |",
+                    "| ---: | --- |",
+                ]
+            )
+            for amplitude, error in summary["measurement_errors"].items():
+                lines.append(f"| {float(amplitude)} | {error} |")
+
         lines.extend(
             [
                 "",
@@ -200,6 +220,12 @@ class ReadoutAmplitudeSweepSaver:
         )
 
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _measurement_status(self, amplitude: float) -> str:
+        if amplitude in self.measurement_errors:
+            return "failed"
+
+        return "ok"
 
     def _save_plot(self, path: Path, figure: Figure | None) -> None:
         if figure is None:

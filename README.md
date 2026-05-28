@@ -173,6 +173,25 @@ Unfinished configured amplitudes are appended with fidelity `0.5`, so the plot
 and saved files are still produced. Set `fill_unfinished_on_interrupt=False` to
 raise the interrupt normally.
 
+## Failed Measurements
+
+By default, a failed amplitude measurement does not abort the whole optimization:
+
+```python
+continue_on_measurement_error=True
+failed_measurement_fidelity=0.5
+```
+
+If one amplitude fails, the optimizer records the error, assigns fidelity `0.5`
+for that point, and continues to the next amplitude or scan step. Failed points
+are marked in `fidelities.csv`, `summary.json`, `report.md`, and `data.npz`.
+
+Set this to raise immediately instead:
+
+```python
+continue_on_measurement_error=False
+```
+
 ## Important Modules
 
 ```text
