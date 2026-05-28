@@ -38,3 +38,4 @@ laboneq_output/
 # Local logs
 *.log
 logs/
+laboneq_results.json
