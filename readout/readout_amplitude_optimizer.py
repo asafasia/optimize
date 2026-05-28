@@ -335,7 +335,7 @@ if __name__ == "__main__":
     workflow_settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=False,
+        run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
         display_handler_plots=False,
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     optimizer_settings = ReadoutAmplitudeSweepSettings(
         amplitudes=np.linspace(0.01 , 0.15, 15),
         workflow_settings=workflow_settings,
-        method=ReadoutScanMethod.GOLDEN_SECTION,
+        method=ReadoutScanMethod.SWEEP,
     )
 
     qubits = ['q11']
