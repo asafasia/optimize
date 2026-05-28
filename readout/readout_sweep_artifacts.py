@@ -11,8 +11,8 @@ from typing import Any
 from matplotlib.figure import Figure
 import numpy as np
 
-from optimize.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from optimize.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
+from optimize.readout.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
 
 
 class ReadoutAmplitudeSweepSaver:
@@ -25,6 +25,8 @@ class ReadoutAmplitudeSweepSaver:
         profile: Any,
         initial_amplitudes: dict[str, float] | None = None,
         readout_lengths: dict[str, float] | None = None,
+        fidelity_errors: dict[str, list[float | None]] | None = None,
+        separations: dict[str, list[float | None]] | None = None,
         iq_blob_figures: dict[float, list[Figure]] | None = None,
         profile_path: str | Path | None = None,
     ) -> None:
@@ -35,8 +37,14 @@ class ReadoutAmplitudeSweepSaver:
         self.profile = profile
         self.initial_amplitudes = initial_amplitudes or {}
         self.readout_lengths = readout_lengths or {}
+        self.fidelity_errors = fidelity_errors or {}
+        self.separations = separations or {}
         self.iq_blob_figures = iq_blob_figures or {}
         self.profile_path = profile_path
+        self.interrupted = False
+        self.interrupt_reason: str | None = None
+        self.reset_label: str | None = None
+        self.scan_method: str = "unknown"
 
     def save(
         self,
@@ -50,11 +58,16 @@ class ReadoutAmplitudeSweepSaver:
             fidelities=self.fidelities,
             initial_amplitudes=self.initial_amplitudes,
         ).summary()
+        summary["interrupted"] = self.interrupted
+        summary["interrupt_reason"] = self.interrupt_reason
+        summary["scan_method"] = self.scan_method
 
         np.savez_compressed(
             run_dir / "data.npz",
             amplitudes=self.amplitudes,
             fidelities=np.array([self.fidelities], dtype=object),
+            fidelity_errors=np.array([self.fidelity_errors], dtype=object),
+            separations=np.array([self.separations], dtype=object),
             results=np.array([self.results], dtype=object),
         )
 
@@ -68,32 +81,72 @@ class ReadoutAmplitudeSweepSaver:
         return str(run_dir)
 
     def _create_run_dir(self, output_dir: str | Path) -> Path:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        now = datetime.now()
+        date_folder = now.strftime("%Y-%m-%d")
+        timestamp = now.strftime("%H-%M-%S")
         qubit_slug = "_".join(self.qubit_names)
-        run_name = f"{timestamp}_readout_optimize_{qubit_slug}"
-        run_dir = Path(output_dir) / run_name
+        method_slug = self._slug(self.scan_method)
+        run_name = f"{timestamp}_{method_slug}_{qubit_slug}"
+        day_dir = Path(output_dir) / date_folder
+        run_dir = day_dir / run_name
 
         suffix = 1
         while run_dir.exists():
-            run_dir = Path(output_dir) / f"{run_name}_{suffix}"
+            run_dir = day_dir / f"{run_name}_{suffix}"
             suffix += 1
 
         run_dir.mkdir(parents=True)
         return run_dir
 
+    def _slug(self, value: str) -> str:
+        return value.lower().replace(" ", "_")
+
     def _save_csv(self, path: Path) -> None:
         with path.open("w", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["amplitude", *self.qubit_names, "mean_fidelity"])
+            writer.writerow(
+                [
+                    "amplitude",
+                    *self.qubit_names,
+                    *[f"{qubit}_fidelity_error" for qubit in self.qubit_names],
+                    *[f"{qubit}_separation" for qubit in self.qubit_names],
+                    "mean_fidelity",
+                ]
+            )
 
             for index, amplitude in enumerate(self.amplitudes):
                 row_fidelities = [
                     float(self.fidelities[qubit_name][index])
                     for qubit_name in self.qubit_names
                 ]
+                row_errors = [
+                    self._optional_metric_at(self.fidelity_errors, qubit_name, index)
+                    for qubit_name in self.qubit_names
+                ]
+                row_separations = [
+                    self._optional_metric_at(self.separations, qubit_name, index)
+                    for qubit_name in self.qubit_names
+                ]
                 writer.writerow(
-                    [float(amplitude), *row_fidelities, float(np.mean(row_fidelities))]
+                    [
+                        float(amplitude),
+                        *row_fidelities,
+                        *row_errors,
+                        *row_separations,
+                        float(np.mean(row_fidelities)),
+                    ]
                 )
+
+    def _optional_metric_at(
+        self,
+        metrics: dict[str, list[float | None]],
+        qubit_name: str,
+        index: int,
+    ) -> float | None:
+        values = metrics.get(qubit_name, [])
+        if index >= len(values) or values[index] is None:
+            return None
+        return float(values[index])
 
     def _save_summary(self, path: Path, summary: dict[str, Any]) -> None:
         path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -109,6 +162,8 @@ class ReadoutAmplitudeSweepSaver:
             "",
             f"Created at: {summary['created_at']}",
             f"Qubits: {', '.join(summary['qubits'])}",
+            f"Scan method: {summary['scan_method']}",
+            f"Interrupted: {summary.get('interrupted', False)}",
             f"Best mean amplitude: {summary['best_mean_amplitude']}",
             f"Best mean fidelity: {summary['best_mean_fidelity']}",
             "",
@@ -117,6 +172,8 @@ class ReadoutAmplitudeSweepSaver:
             "| Qubit | Initial amplitude | Best amplitude | Best fidelity | Final fidelity |",
             "| --- | ---: | ---: | ---: | ---: |",
         ]
+        if summary.get("interrupt_reason"):
+            lines.insert(5, f"Interrupt reason: {summary['interrupt_reason']}")
 
         for qubit_name, qubit_summary in summary["qubit_summaries"].items():
             lines.append(
@@ -153,6 +210,9 @@ class ReadoutAmplitudeSweepSaver:
             )
             plotter.initial_amplitudes = self.initial_amplitudes
             plotter.readout_lengths = self.readout_lengths
+            plotter.reset_label = self.reset_label
+            plotter.fidelity_errors = self.fidelity_errors
+            plotter.separations = self.separations
             figure = plotter.plot()
 
         fig = figure

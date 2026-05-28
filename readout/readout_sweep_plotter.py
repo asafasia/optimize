@@ -21,9 +21,18 @@ class ReadoutAmplitudeSweepPlotter:
         self.fidelities = fidelities
         self.initial_amplitudes = initial_amplitudes or {}
         self.readout_lengths = readout_lengths or {}
+        self.reset_label: str | None = None
+        self.fidelity_errors: dict[str, list[float | None]] = {}
+        self.separations: dict[str, list[float | None]] = {}
 
     def plot(self) -> Figure:
-        fig, ax = plt.subplots()
+        fig, (fidelity_ax, separation_ax) = plt.subplots(
+            2,
+            1,
+            sharex=True,
+            figsize=(7.5, 7.0),
+            gridspec_kw={"height_ratios": [2, 1]},
+        )
         amplitudes = [float(amplitude) for amplitude in self.amplitudes]
         sorted_indices = np.argsort(amplitudes)
         sorted_amplitudes = [amplitudes[index] for index in sorted_indices]
@@ -39,13 +48,39 @@ class ReadoutAmplitudeSweepPlotter:
             best_amplitude = sorted_amplitudes[best_index]
             best_fidelity = fidelity_values[best_index]
 
-            ax.plot(
+            line = fidelity_ax.plot(
                 sorted_amplitudes,
                 fidelity_values,
                 marker="o",
                 label=f"Qubit {qubit_name}",
+            )[0]
+            color = line.get_color()
+            fidelity_errors = self._sorted_optional_values(
+                self.fidelity_errors.get(qubit_name, []),
+                sorted_indices,
             )
-            ax.scatter(
+            if any(error is not None for error in fidelity_errors):
+                lower, upper = self._error_band(fidelity_values, fidelity_errors)
+                fidelity_ax.fill_between(
+                    sorted_amplitudes,
+                    lower,
+                    upper,
+                    color=color,
+                    alpha=0.18,
+                    linewidth=0,
+                )
+                fidelity_ax.errorbar(
+                    sorted_amplitudes,
+                    fidelity_values,
+                    yerr=[0.0 if error is None else error for error in fidelity_errors],
+                    fmt="none",
+                    ecolor=color,
+                    alpha=0.45,
+                    capsize=3,
+                    linewidth=0.8,
+                )
+
+            fidelity_ax.scatter(
                 [best_amplitude],
                 [best_fidelity],
                 color="green",
@@ -53,7 +88,7 @@ class ReadoutAmplitudeSweepPlotter:
                 s=130,
                 zorder=4,
             )
-            ax.axvline(
+            fidelity_ax.axvline(
                 best_amplitude,
                 color="green",
                 linestyle=":",
@@ -73,7 +108,7 @@ class ReadoutAmplitudeSweepPlotter:
                     sorted_amplitudes,
                     fidelity_values,
                 )
-                ax.scatter(
+                fidelity_ax.scatter(
                     [initial_amplitude],
                     [initial_fidelity],
                     color="red",
@@ -81,7 +116,7 @@ class ReadoutAmplitudeSweepPlotter:
                     s=70,
                     zorder=4,
                 )
-                ax.axvline(
+                fidelity_ax.axvline(
                     initial_amplitude,
                     color="red",
                     linestyle="--",
@@ -94,15 +129,55 @@ class ReadoutAmplitudeSweepPlotter:
                     ),
                 )
 
-        ax.set_title(self._title())
-        ax.set_xlabel("Readout Amplitude")
-        ax.set_ylabel("Readout Fidelity")
-        ax.set_ylim(0.5, 1.0)
-        ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.6)
-        ax.legend()
+            separation_values = self._sorted_optional_values(
+                self.separations.get(qubit_name, []),
+                sorted_indices,
+            )
+            if any(value is not None for value in separation_values):
+                separation_ax.plot(
+                    sorted_amplitudes,
+                    [np.nan if value is None else value for value in separation_values],
+                    marker="o",
+                    color=color,
+                    label=f"Qubit {qubit_name}",
+                )
+
+        fidelity_ax.set_title(self._title())
+        fidelity_ax.set_ylabel("Readout Fidelity")
+        fidelity_ax.set_ylim(0.5, 1.0)
+        fidelity_ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.6)
+        fidelity_ax.legend()
+        separation_ax.set_xlabel("Readout Amplitude")
+        separation_ax.set_ylabel("Separation")
+        separation_ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.6)
+        if separation_ax.has_data():
+            separation_ax.legend()
         fig.tight_layout()
 
         return fig
+
+    def _sorted_optional_values(
+        self,
+        values: list[float | None],
+        sorted_indices: np.ndarray,
+    ) -> list[float | None]:
+        if len(values) != len(sorted_indices):
+            return [None for _ in sorted_indices]
+
+        return [values[index] for index in sorted_indices]
+
+    def _error_band(
+        self,
+        values: list[float],
+        errors: list[float | None],
+    ) -> tuple[list[float], list[float]]:
+        lower = []
+        upper = []
+        for value, error in zip(values, errors):
+            error_value = 0.0 if error is None else float(error)
+            lower.append(value - error_value)
+            upper.append(value + error_value)
+        return lower, upper
 
     def _fidelity_at_amplitude(
         self,
@@ -136,7 +211,16 @@ class ReadoutAmplitudeSweepPlotter:
         ]
 
         if not lengths:
-            return f"Readout Fidelity vs Amplitude - {qubits}"
+            title_parts = ["Readout Fidelity vs Amplitude", qubits]
+        else:
+            length_label = ", ".join(lengths)
+            title_parts = [
+                "Readout Fidelity vs Amplitude",
+                qubits,
+                length_label,
+            ]
 
-        length_label = ", ".join(lengths)
-        return f"Readout Fidelity vs Amplitude - {qubits} - {length_label}"
+        if self.reset_label:
+            title_parts.append(self.reset_label)
+
+        return " - ".join(title_parts)

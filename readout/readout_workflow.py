@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from matplotlib import pyplot as plt
@@ -14,7 +14,8 @@ from qratena.experiments.iq_blobs import IQBlobsHandler
 from qratena.experiments.kernel_traces_calculation import KernelTracesCalculationHandler
 from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHandler
 from qratena.system.components_params.profile import Profile
-from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ExportationMethod, UpdateParamsMethod
+from qratena.system.components_params.reset_settings import ResetSettings
+from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ExportationMethod, ResetType, UpdateParamsMethod
 from qratena.util.sweeps_utils import MidIntervalArray
 from qratena.util.sweeps_utils import MidIntervalArray
 
@@ -36,6 +37,7 @@ class ReadoutFidelityWorkflowSettings:
     plot_handlers: bool = True
     display_handler_plots: bool = False
     suppress_handler_output: bool = False
+    reset: ResetSettings = field(default_factory=ResetSettings)
 
 
 class ReadoutFidelityWorkflow:
@@ -96,7 +98,6 @@ class ReadoutFidelityWorkflow:
             result = self._submit_kernel_handler(handler)
 
         self._load_handler_result(handler, result)
-        # self._analyze_handler_result(handler)
 
         return handler.data
 
@@ -187,6 +188,7 @@ class ReadoutFidelityWorkflow:
         with self._optional_output_suppression():
             handler.load_result(result)
         self._analyze_handler_result(handler)
+        
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
         with self._optional_output_suppression():
@@ -203,6 +205,8 @@ class ReadoutFidelityWorkflow:
             if not self.settings.display_handler_plots:
                 for figure in figures:
                     plt.close(figure)
+                    
+        handler.update_system_params()
 
     def _plot_handler(self, handler: ExperimentHandler) -> list[Figure]:
         existing_figures = set(plt.get_fignums())
@@ -259,7 +263,7 @@ class ReadoutFidelityWorkflow:
     def _build_kernel_handler(self):
         settings = ExperimentSettings(
             log_level=0,
-            num_shots=5000,
+            num_shots=10000,
             exportation_method=ExportationMethod.NONE,
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
@@ -282,6 +286,7 @@ class ReadoutFidelityWorkflow:
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
             configure_logging=self.settings.suppress_handler_output,
+            reset=self.settings.reset,
         )
 
         handler = IQBlobsHandler(
@@ -309,11 +314,13 @@ if __name__ == "__main__":
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=False,
+        run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
         display_handler_plots=True,
-        suppress_handler_output=False,
+        suppress_handler_output=True,
+        reset = ResetSettings(ResetType.ACTIVE, reset_num=5),
+
     )
 
     workflow = ReadoutFidelityWorkflow(
