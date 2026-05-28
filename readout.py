@@ -206,7 +206,7 @@ if __name__ == "__main__":
         profile_name="main",
         do_emulation=False,
         run_resonator=False,
-        run_kernels=False,
+        run_kernels=True,
         run_iq_blobs=True,
         display_handler_plots=False,
         suppress_handler_output=False,
@@ -217,7 +217,7 @@ if __name__ == "__main__":
         workflow_settings=workflow_settings,
     )
 
-    qubits = ['q1']
+    qubits = ['q5']
     
     for qubit_name in qubits:
 

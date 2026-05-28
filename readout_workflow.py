@@ -94,8 +94,7 @@ class ReadoutFidelityWorkflow:
 
         with self._optional_output_suppression():
             result = self._submit_kernel_handler(handler)
-            
-            
+
         self._load_handler_result(handler, result)
         # self._analyze_handler_result(handler)
 
@@ -123,7 +122,7 @@ class ReadoutFidelityWorkflow:
                 self.settings.profile_name,
                 handler.qubit_names,
                 compiled_experiment,
-                self.settings.do_emulation,
+                do_emulation=self.settings.do_emulation,
             )
         )
 
@@ -157,7 +156,8 @@ class ReadoutFidelityWorkflow:
     ) -> Any:
         original_experiment = getattr(handler, "experiment", None)
         had_experiment = hasattr(handler, "experiment")
-        original_compiled_experiment = getattr(handler, "compiled_experiment", None)
+        original_compiled_experiment = getattr(
+            handler, "compiled_experiment", None)
         had_compiled_experiment = hasattr(handler, "compiled_experiment")
 
         handler.experiment = experiment
@@ -267,6 +267,7 @@ class ReadoutFidelityWorkflow:
         handler = KernelTracesCalculationHandler(
             qubit_names=[self.qubit_names[0]],
             settings=settings,
+            profile=self.profile,
         )
 
         return handler
