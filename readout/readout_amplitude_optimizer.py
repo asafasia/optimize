@@ -123,7 +123,8 @@ class ReadoutAmplitudeSweepWorkflow:
 
     def analyze(self) -> dict[str, Any]:
         if not self.measured_amplitudes:
-            raise RuntimeError("Run the amplitude sweep before analyzing results.")
+            raise RuntimeError(
+                "Run the amplitude sweep before analyzing results.")
 
         summary = ReadoutAmplitudeSweepAnalysis(
             qubit_names=self.qubit_names,
@@ -142,7 +143,8 @@ class ReadoutAmplitudeSweepWorkflow:
         figure: Figure | None = None,
     ) -> str:
         if not self.measured_amplitudes:
-            raise RuntimeError("Run the amplitude sweep before saving results.")
+            raise RuntimeError(
+                "Run the amplitude sweep before saving results.")
 
         saver = ReadoutAmplitudeSweepSaver(
             qubit_names=self.qubit_names,
@@ -362,7 +364,8 @@ class ReadoutAmplitudeSweepWorkflow:
             return
 
         bar = "#" * 30
-        print(f"\rReadout optimization [{bar}] {total}/{total} (100.0%) complete")
+        print(
+            f"\rReadout optimization [{bar}] {total}/{total} (100.0%) complete")
 
 
 if __name__ == "__main__":
@@ -370,9 +373,8 @@ if __name__ == "__main__":
     from resources.load_profile import load_profile
 
     profile = load_profile()
-    
-    task_manager = load_task_manager()
 
+    task_manager = load_task_manager()
 
     workflow_settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
@@ -382,18 +384,18 @@ if __name__ == "__main__":
         run_iq_blobs=True,
         display_handler_plots=False,
         suppress_handler_output=True,
-        reset = ResetSettings(ResetType.ACTIVE, reset_num=5),
+        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.01 , 0.15, 15),
+        amplitudes=np.linspace(0.01, 0.13, 25),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
     )
 
-    qubits = profile.qubits.keys()
-    
+    qubits = [q for q in profile.qubits.keys() if q != "q1"]
+
     for qubit_name in qubits:
 
         optimizer = ReadoutAmplitudeSweepWorkflow(
@@ -407,5 +409,3 @@ if __name__ == "__main__":
         fig = optimizer.plot()
         optimizer.save_results(figure=fig)
         plt.show()
-        
-        
