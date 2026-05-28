@@ -62,7 +62,7 @@ method=ReadoutScanMethod.GRADIENT
 ```
 
 More detail is in
-[`readout/readout_gradient_method.md`](readout/readout_gradient_method.md).
+[`readout/utils/readout_gradient_method.md`](readout/utils/readout_gradient_method.md).
 
 ### Golden Section
 
@@ -91,7 +91,7 @@ from optimize.readout.readout_amplitude_optimizer import (
     ReadoutAmplitudeSweepSettings,
     ReadoutAmplitudeSweepWorkflow,
 )
-from optimize.readout.readout_scan_types import ReadoutScanMethod
+from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType
@@ -178,11 +178,11 @@ raise the interrupt normally.
 ```text
 readout/readout_amplitude_optimizer.py  # main optimizer workflow
 readout/readout_workflow.py             # single-amplitude fidelity workflow
-readout/readout_scan_methods.py         # sweep / gradient / golden-section scans
-readout/readout_scan_types.py           # scan method enum
-readout/readout_sweep_analysis.py       # analysis summary
-readout/readout_sweep_plotter.py        # plotting
-readout/readout_sweep_artifacts.py      # saving artifacts
+readout/utils/readout_scan_methods.py   # sweep / gradient / golden-section scans
+readout/utils/readout_scan_types.py     # scan method enum
+readout/utils/readout_sweep_analysis.py # analysis summary
+readout/utils/readout_sweep_plotter.py  # plotting
+readout/utils/readout_sweep_artifacts.py # saving artifacts
 ```
 
 ## Notes
