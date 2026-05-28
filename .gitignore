@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments and local tooling
+.venv/
+venv/
+env/
+.env
+.env.*
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Generated experiment outputs
+data/
+DATA/
+laboneq_output/
+*.npz
+*.npy
+*.h5
+*.hdf5
+
+# Generated plots/reports from local runs
+*.png
+*.pdf
+
+# Quarto / rendered documentation artifacts
+*_files/
+*.html
+
+# Local logs
+*.log
+logs/
