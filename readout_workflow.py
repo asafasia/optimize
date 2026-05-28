@@ -262,6 +262,8 @@ class ReadoutFidelityWorkflow:
             num_shots=1000,
             exportation_method=ExportationMethod.NONE,
             update_params_method=UpdateParamsMethod.UPDATE,
+            acquisition_type=AcquisitionType.RAW,
+            averaging_mode=AveragingMode.CYCLIC,
             configure_logging=self.settings.suppress_handler_output,
         )
         handler = KernelTracesCalculationHandler(
@@ -275,7 +277,7 @@ class ReadoutFidelityWorkflow:
     def _build_iq_blobs_handler(self):
         settings = ExperimentSettings(
             num_shots=10000,
-            acquisition_type=AcquisitionType.SPECTROSCOPY,
+            acquisition_type=AcquisitionType.INTEGRATION,
             averaging_mode=AveragingMode.SINGLE_SHOT,
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
@@ -302,7 +304,6 @@ if __name__ == "__main__":
     readout_pulse = profile.qubits[qubit_names[0]].pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
-    # readout_pulse.readout_amplitude = 0.07
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
