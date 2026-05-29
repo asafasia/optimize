@@ -389,12 +389,13 @@ if __name__ == "__main__":
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.01, 0.13, 25),
+        amplitudes=np.linspace(0.001, 0.13, 35),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
     )
-
-    qubits = [q for q in profile.qubits.keys() if q != "q1"]
+    qubits = sorted([q for q in profile.qubits.keys() if q != "q1"],    key=lambda q: int(q[1:]))
+    
+    
 
     for qubit_name in qubits:
 
@@ -409,3 +410,5 @@ if __name__ == "__main__":
         fig = optimizer.plot()
         optimizer.save_results(figure=fig)
         plt.show()
+
+# %%
