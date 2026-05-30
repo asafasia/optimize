@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import threading
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
 from matplotlib import pyplot as plt
@@ -15,6 +17,8 @@ from qratena.experiments.kernel_traces_calculation import KernelTracesCalculatio
 from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHandler
 from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.reset_settings import ResetSettings
+from qratena.system.qratena_platform import create_platform
+from qratena.system.qratena_platform import create_platform
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ExportationMethod, ResetType, UpdateParamsMethod
 from qratena.util.sweeps_utils import MidIntervalArray
 from qratena.util.sweeps_utils import MidIntervalArray
@@ -25,6 +29,7 @@ from resources import *
 
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
+from laboneq.dsl.session import Session
 
 
 @dataclass(slots=True)
@@ -35,8 +40,10 @@ class ReadoutFidelityWorkflowSettings:
     run_kernels: bool = True
     run_iq_blobs: bool = True
     plot_handlers: bool = True
-    display_handler_plots: bool = False
-    suppress_handler_output: bool = False
+    display_plots: bool = True
+    show_handler_output: bool = True
+    report_timing: bool = True
+    task_status_poll_interval: float = 10.0
     reset: ResetSettings = field(default_factory=ResetSettings)
 
 
@@ -54,7 +61,11 @@ class ReadoutFidelityWorkflow:
         profile: Profile,
         task_manager: TaskSubmitterAsync,
         settings: ReadoutFidelityWorkflowSettings | None = None,
+        session: Session | None = None,
     ) -> None:
+
+        self.session = session
+
         self.qubit_names = qubit_names
         self.profile = profile
         self.task_manager = task_manager
@@ -65,26 +76,44 @@ class ReadoutFidelityWorkflow:
         self.iq_blobs_handler = None
 
         self.results: dict[str, Any] = {}
+        self.timings: dict[str, float] = {}
 
     def run(self) -> dict[str, Any]:
+        workflow_start = perf_counter()
         if self.settings.run_resonator:
-            self.results["resonator"] = self.run_resonator_node()
+            self.results["resonator"] = self._timed_step(
+                "resonator",
+                self.run_resonator_node,
+            )
 
         if self.settings.run_kernels:
-            self.results["kernels"] = self.run_kernel_node()
+            self.results["kernels"] = self._timed_step(
+                "kernels",
+                self.run_kernel_node,
+            )
 
         if self.settings.run_iq_blobs:
-            self.results["iq_blobs"] = self.run_iq_blobs_node()
+            self.results["iq_blobs"] = self._timed_step(
+                "iq_blobs",
+                self.run_iq_blobs_node,
+            )
 
+        self.timings["total"] = perf_counter() - workflow_start
+        self._timing_print(
+            f"workflow finished in {self._format_duration(self.timings['total'])}"
+        )
         return self.results
 
     def run_resonator_node(self) -> Any:
         handler = self._build_resonator_handler()
         self.resonator_handler = handler
 
-        with self._optional_output_suppression():
-            result = self._submit_handler(handler)
-        self._load_handler_result(handler, result)
+        if self.settings.do_emulation:
+            self._run_handler_locally(handler)
+        else:
+            with self._optional_output_suppression():
+                result = self._submit_handler(handler)
+            self._load_handler_result(handler, result)
 
         self._update_profile_from_resonator(handler)
 
@@ -94,10 +123,12 @@ class ReadoutFidelityWorkflow:
         handler = self._build_kernel_handler()
         self.kernel_handler = handler
 
-        with self._optional_output_suppression():
-            result = self._submit_kernel_handler(handler)
-
-        self._load_handler_result(handler, result)
+        if self.settings.do_emulation:
+            self._run_handler_locally(handler)
+        else:
+            with self._optional_output_suppression():
+                result_0, result_1 = self._submit_kernel_handler(handler)
+            self._load_kernel_handler_result(handler, result_0, result_1)
 
         return handler.data
 
@@ -105,27 +136,60 @@ class ReadoutFidelityWorkflow:
         handler = self._build_iq_blobs_handler()
         self.iq_blobs_handler = handler
 
-        with self._optional_output_suppression():
-            result = self._submit_handler(handler)
-        self._load_handler_result(handler, result)
+        if self.settings.do_emulation:
+            self._run_handler_locally(handler)
+        else:
+            with self._optional_output_suppression():
+                result = self._submit_handler(handler)
+            self._load_handler_result(handler, result)
 
         return handler.data
 
-    def _submit_handler(self, handler) -> Any:
+    def _run_handler_locally(self, handler: ExperimentHandler) -> Any:
+        """Run a handler without the task manager and retain any figures it creates."""
+        existing_figures = set(plt.get_fignums())
+        with self._optional_output_suppression():
+            result = handler.run()
+
+        new_figures = set(plt.get_fignums()) - existing_figures
+        figures = self._handler_figures(handler)
+        figures.extend(plt.figure(number) for number in sorted(new_figures))
+        figures = self._unique_figures(figures)
+        if not figures and self.settings.plot_handlers:
+            with self._optional_output_suppression():
+                figures = self._plot_handler(handler)
+
+        if figures:
+            handler.workflow_figures = figures
+            if not self.settings.display_plots:
+                for figure in figures:
+                    plt.close(figure)
+
+        return result
+
+    def _submit_handler(self, handler: ExperimentHandler) -> Any:
         compiled_experiment = handler.get_compiled_experiment()
 
         return self._submit_compiled_experiment(handler, compiled_experiment)
 
-    def _submit_compiled_experiment(self, handler, compiled_experiment) -> Any:
-        return self.task_manager.wait(
-            self.task_manager.run_compiled_experiment(
-                handler.experiment_name,
-                self.settings.profile_name,
-                handler.qubit_names,
-                compiled_experiment,
-                do_emulation=self.settings.do_emulation,
-            )
+    def _submit_compiled_experiment(
+        self,
+        handler: ExperimentHandler,
+        compiled_experiment: Any,
+    ) -> Any:
+        label = handler.experiment_name
+        submit_start = perf_counter()
+        task = self.task_manager.run_compiled_experiment(
+            handler.experiment_name,
+            self.settings.profile_name,
+            handler.qubit_names,
+            compiled_experiment,
+            do_emulation=False,
         )
+        self._timing_print(
+            f"{label} submitted in {self._format_duration(perf_counter() - submit_start)}"
+        )
+        return self._wait_for_task(task, label)
 
     def _submit_kernel_handler(self, handler: KernelTracesCalculationHandler) -> Any:
         handler.define_experiment()
@@ -188,11 +252,24 @@ class ReadoutFidelityWorkflow:
         with self._optional_output_suppression():
             handler.load_result(result)
         self._analyze_handler_result(handler)
-        
+
+    def _load_kernel_handler_result(
+        self,
+        handler: KernelTracesCalculationHandler,
+        result_0: Any,
+        result_1: Any,
+    ) -> None:
+        with self._optional_output_suppression():
+            if hasattr(handler, "load_results"):
+                handler.load_results(result_0, result_1)
+            else:
+                handler.load_result((result_0, result_1))
+        self._analyze_handler_result(handler)
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
         with self._optional_output_suppression():
             handler.analyze()
+            handler.update_system_params()
 
         if not self.settings.plot_handlers:
             return
@@ -202,15 +279,23 @@ class ReadoutFidelityWorkflow:
 
         if figures:
             handler.workflow_figures = figures
-            if not self.settings.display_handler_plots:
+            if not self.settings.display_plots:
                 for figure in figures:
                     plt.close(figure)
-                    
-        handler.update_system_params()
 
     def _plot_handler(self, handler: ExperimentHandler) -> list[Figure]:
         existing_figures = set(plt.get_fignums())
-        plot_result = handler.plot()
+        handler_settings = getattr(handler, "settings", None)
+        original_display_plots = getattr(
+            handler_settings, "display_plots", None)
+        if original_display_plots is not None:
+            handler_settings.display_plots = True
+
+        try:
+            plot_result = handler.plot()
+        finally:
+            if original_display_plots is not None:
+                handler_settings.display_plots = original_display_plots
 
         if isinstance(plot_result, Figure):
             return [plot_result]
@@ -218,11 +303,180 @@ class ReadoutFidelityWorkflow:
             return [figure for figure in plot_result if isinstance(figure, Figure)]
 
         new_figures = set(plt.get_fignums()) - existing_figures
-        return [plt.figure(number) for number in sorted(new_figures)]
+        figures = self._handler_figures(handler)
+        figures.extend(plt.figure(number) for number in sorted(new_figures))
+        return self._unique_figures(figures)
+
+    def _handler_figures(self, handler: ExperimentHandler) -> list[Figure]:
+        figures = []
+        for attribute_name in ("workflow_figures", "figs", "figures"):
+            figures.extend(self._extract_figures(
+                getattr(handler, attribute_name, None)))
+
+        figure = getattr(handler, "fig", None)
+        figures.extend(self._extract_figures(figure))
+
+        return self._unique_figures(figures)
+
+    def _extract_figures(self, value: Any) -> list[Figure]:
+        if isinstance(value, Figure):
+            return [value]
+        if hasattr(value, "figure") and isinstance(value.figure, Figure):
+            return [value.figure]
+        if isinstance(value, dict):
+            figures = []
+            for item in value.values():
+                figures.extend(self._extract_figures(item))
+            return figures
+        if isinstance(value, (list, tuple, set)):
+            figures = []
+            for item in value:
+                figures.extend(self._extract_figures(item))
+            return figures
+        return []
+
+    def _unique_figures(self, figures: list[Figure]) -> list[Figure]:
+        unique_figures = []
+        seen_ids = set()
+        for figure in figures:
+            figure_id = id(figure)
+            if figure_id in seen_ids:
+                continue
+            unique_figures.append(figure)
+            seen_ids.add(figure_id)
+        return unique_figures
+
+    def _timed_step(self, name: str, callback) -> Any:
+        self._timing_print(f"{name} started")
+        start = perf_counter()
+        try:
+            result = callback()
+        except Exception:
+            elapsed = perf_counter() - start
+            self.timings[name] = elapsed
+            self._timing_print(
+                f"{name} failed after {self._format_duration(elapsed)}"
+            )
+            raise
+
+        elapsed = perf_counter() - start
+        self.timings[name] = elapsed
+        self._timing_print(
+            f"{name} finished in {self._format_duration(elapsed)}")
+        return result
+
+    def _wait_for_task(self, task: Any, label: str) -> Any:
+        wait_start = perf_counter()
+        initial_status = self._task_status(task)
+        if initial_status:
+            self._timing_print(f"{label} status: {initial_status}")
+
+        stop_event = threading.Event()
+        poll_thread = self._start_status_polling(task, label, stop_event)
+        try:
+            return self.task_manager.wait(task)
+        finally:
+            stop_event.set()
+            if poll_thread is not None:
+                poll_thread.join(timeout=0.2)
+
+            elapsed = perf_counter() - wait_start
+            final_status = self._task_status(task)
+            status_suffix = f" final status: {final_status}" if final_status else ""
+            self._timing_print(
+                f"{label} wait finished in {self._format_duration(elapsed)}"
+                f"{status_suffix}"
+            )
+
+    def _start_status_polling(
+        self,
+        task: Any,
+        label: str,
+        stop_event: threading.Event,
+    ) -> threading.Thread | None:
+        interval = float(self.settings.task_status_poll_interval)
+        if interval <= 0:
+            return None
+
+        def poll_status() -> None:
+            last_status = self._task_status(task)
+            while not stop_event.wait(interval):
+                status = self._task_status(task)
+                if status and status != last_status:
+                    self._timing_print(f"{label} status: {status}")
+                    last_status = status
+                else:
+                    elapsed = self._format_duration(
+                        perf_counter() - wait_start)
+                    self._timing_print(f"{label} waiting for {elapsed}")
+
+        wait_start = perf_counter()
+        thread = threading.Thread(target=poll_status, daemon=True)
+        thread.start()
+        return thread
+
+    def _task_status(self, task: Any) -> str | None:
+        for source in (task, self.task_manager):
+            status = self._status_from_source(source, task)
+            if status:
+                return status
+        return None
+
+    def _status_from_source(self, source: Any, task: Any) -> str | None:
+        for name in ("status", "state", "task_status", "task_state"):
+            value = getattr(source, name, None)
+            status = self._read_status_value(value, task)
+            if status:
+                return status
+
+        for name in ("get_status", "get_task_status", "get_task_state"):
+            method = getattr(source, name, None)
+            if callable(method):
+                for args in ((task,), ()):
+                    try:
+                        status = method(*args)
+                    except TypeError:
+                        continue
+                    except Exception:
+                        break
+                    if status is not None:
+                        return str(status)
+
+        return None
+
+    def _read_status_value(self, value: Any, task: Any) -> str | None:
+        if value is None:
+            return None
+        if callable(value):
+            for args in ((), (task,)):
+                try:
+                    status = value(*args)
+                except TypeError:
+                    continue
+                except Exception:
+                    return None
+                if status is not None:
+                    return str(status)
+            return None
+        return str(value)
+
+    def _timing_print(self, message: str) -> None:
+        if self.settings.report_timing:
+            print(f"[readout workflow] {message}", flush=True)
+
+    def _format_duration(self, seconds: float) -> str:
+        seconds = max(0.0, float(seconds))
+        minutes, remainder = divmod(seconds, 60)
+        hours, minutes = divmod(int(minutes), 60)
+        if hours:
+            return f"{hours:d}:{minutes:02d}:{remainder:04.1f}"
+        if minutes:
+            return f"{minutes:d}:{remainder:04.1f}"
+        return f"{remainder:.1f}s"
 
     @contextlib.contextmanager
     def _optional_output_suppression(self):
-        if not self.settings.suppress_handler_output:
+        if self.settings.show_handler_output:
             yield
             return
 
@@ -247,7 +501,9 @@ class ReadoutFidelityWorkflow:
             exportation_method=ExportationMethod.NONE,
             acquisition_type=AcquisitionType.SPECTROSCOPY,
             update_params_method=UpdateParamsMethod.NONE,
-            configure_logging=self.settings.suppress_handler_output,
+            configure_logging=not self.settings.show_handler_output,
+            do_emulation=True,
+            display_plots=self.settings.display_plots,
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
@@ -256,6 +512,7 @@ class ReadoutFidelityWorkflow:
             qubit_names=[self.qubit_names[0]],
             settings=settings,
             profile=self.profile,
+            session=self.session,
         )
 
         return handler
@@ -268,12 +525,15 @@ class ReadoutFidelityWorkflow:
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
             averaging_mode=AveragingMode.CYCLIC,
-            configure_logging=self.settings.suppress_handler_output,
+            configure_logging=not self.settings.show_handler_output,
+            do_emulation=True,
+            display_plots=self.settings.display_plots,
         )
         handler = KernelTracesCalculationHandler(
             qubit_names=[self.qubit_names[0]],
             settings=settings,
             profile=self.profile,
+            session=self.session,
         )
 
         return handler
@@ -285,14 +545,17 @@ class ReadoutFidelityWorkflow:
             averaging_mode=AveragingMode.SINGLE_SHOT,
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
-            configure_logging=self.settings.suppress_handler_output,
+            configure_logging=not self.settings.show_handler_output,
             reset=self.settings.reset,
+            do_emulation=True,
+            display_plots=self.settings.display_plots,
         )
 
         handler = IQBlobsHandler(
             qubit_names=self.qubit_names,
             settings=settings,
             profile=self.profile,
+            session=self.session,
         )
 
         return handler
@@ -309,17 +572,22 @@ if __name__ == "__main__":
     readout_pulse = profile.qubits[qubit_names[0]].pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
+    readout_pulse.readout_amplitude = 0.01
+
+    quantum_platform = create_platform(profile)
+
+    setup = quantum_platform.setup
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=True,
+        run_resonator=False,
         run_kernels=True,
         run_iq_blobs=True,
-        display_handler_plots=True,
-        suppress_handler_output=True,
-        reset = ResetSettings(ResetType.ACTIVE, reset_num=5),
+        display_plots=False,
+        show_handler_output=True,
+        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 
     )
 

@@ -24,6 +24,7 @@ class ReadoutAmplitudeSweepPlotter:
         self.reset_label: str | None = None
         self.fidelity_errors: dict[str, list[float | None]] = {}
         self.separations: dict[str, list[float | None]] = {}
+        self.selected_amplitude: float | None = None
 
     def plot(self) -> Figure:
         fig, (fidelity_ax, separation_ax) = plt.subplots(
@@ -36,6 +37,7 @@ class ReadoutAmplitudeSweepPlotter:
         amplitudes = [float(amplitude) for amplitude in self.amplitudes]
         sorted_indices = np.argsort(amplitudes)
         sorted_amplitudes = [amplitudes[index] for index in sorted_indices]
+        selected_label_added = False
 
         for qubit_name in self.qubit_names:
             measured_fidelities = [
@@ -129,18 +131,98 @@ class ReadoutAmplitudeSweepPlotter:
                     ),
                 )
 
+            if self.selected_amplitude is not None:
+                selected_amplitude = float(self.selected_amplitude)
+                selected_fidelity = self._fidelity_at_amplitude(
+                    selected_amplitude,
+                    sorted_amplitudes,
+                    fidelity_values,
+                )
+                selected_label = None
+                if not selected_label_added:
+                    selected_label = f"Selected A={selected_amplitude:.4g}"
+                    selected_label_added = True
+                self._plot_selected_point(
+                    fidelity_ax,
+                    selected_amplitude,
+                    selected_fidelity,
+                    size=175,
+                    label=selected_label,
+                )
+
             separation_values = self._sorted_optional_values(
                 self.separations.get(qubit_name, []),
                 sorted_indices,
             )
             if any(value is not None for value in separation_values):
+                numeric_separations = [
+                    np.nan if value is None else value for value in separation_values
+                ]
                 separation_ax.plot(
                     sorted_amplitudes,
-                    [np.nan if value is None else value for value in separation_values],
+                    numeric_separations,
                     marker="o",
                     color=color,
                     label=f"Qubit {qubit_name}",
                 )
+                best_separation = self._optional_value_at_amplitude(
+                    best_amplitude,
+                    sorted_amplitudes,
+                    numeric_separations,
+                )
+                if best_separation is not None:
+                    separation_ax.scatter(
+                        [best_amplitude],
+                        [best_separation],
+                        color="green",
+                        marker="*",
+                        s=95,
+                        zorder=4,
+                    )
+                separation_ax.axvline(
+                    best_amplitude,
+                    color="green",
+                    linestyle=":",
+                    linewidth=1.5,
+                )
+
+                initial_amplitude = self.initial_amplitudes.get(qubit_name)
+                if initial_amplitude is not None:
+                    initial_separation = self._optional_value_at_amplitude(
+                        initial_amplitude,
+                        sorted_amplitudes,
+                        numeric_separations,
+                    )
+                    if initial_separation is not None:
+                        separation_ax.scatter(
+                            [initial_amplitude],
+                            [initial_separation],
+                            color="red",
+                            marker="o",
+                            s=55,
+                            zorder=4,
+                        )
+                    separation_ax.axvline(
+                        initial_amplitude,
+                        color="red",
+                        linestyle="--",
+                        linewidth=1.2,
+                    )
+
+                if self.selected_amplitude is not None:
+                    selected_amplitude = float(self.selected_amplitude)
+                    selected_separation = self._optional_value_at_amplitude(
+                        selected_amplitude,
+                        sorted_amplitudes,
+                        numeric_separations,
+                    )
+                    if selected_separation is not None:
+                        self._plot_selected_point(
+                            separation_ax,
+                            selected_amplitude,
+                            selected_separation,
+                            size=135,
+                        )
 
         fidelity_ax.set_title(self._title())
         fidelity_ax.set_ylabel("Readout Fidelity")
@@ -155,6 +237,34 @@ class ReadoutAmplitudeSweepPlotter:
         fig.tight_layout()
 
         return fig
+
+    def _plot_selected_point(
+        self,
+        axis,
+        amplitude: float,
+        value: float,
+        size: int,
+        label: str | None = None,
+    ) -> None:
+        axis.scatter(
+            [amplitude],
+            [value],
+            color="#2563eb",
+            marker="o",
+            s=max(32, int(size * 0.24)),
+            zorder=5,
+        )
+        axis.scatter(
+            [amplitude],
+            [value],
+            facecolors="none",
+            edgecolors="#2563eb",
+            marker="o",
+            s=size,
+            linewidths=2.2,
+            zorder=6,
+            label=label,
+        )
 
     def _sorted_optional_values(
         self,
@@ -191,6 +301,29 @@ class ReadoutAmplitudeSweepPlotter:
             return fidelities[-1]
 
         return float(np.interp(amplitude, amplitudes, fidelities))
+
+    def _optional_value_at_amplitude(
+        self,
+        amplitude: float,
+        amplitudes: list[float],
+        values: list[float],
+    ) -> float | None:
+        finite_points = [
+            (x, y)
+            for x, y in zip(amplitudes, values)
+            if not np.isnan(y)
+        ]
+        if not finite_points:
+            return None
+
+        finite_amplitudes = [point[0] for point in finite_points]
+        finite_values = [point[1] for point in finite_points]
+        if amplitude <= finite_amplitudes[0]:
+            return finite_values[0]
+        if amplitude >= finite_amplitudes[-1]:
+            return finite_values[-1]
+
+        return float(np.interp(amplitude, finite_amplitudes, finite_values))
 
     def _marker_label(
         self,

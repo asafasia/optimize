@@ -15,6 +15,29 @@ from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepA
 from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
 
 
+def create_readout_run_dir(
+    output_dir: str | Path,
+    scan_method: str,
+    qubit_names: list[str],
+) -> Path:
+    now = datetime.now()
+    date_folder = now.strftime("%Y-%m-%d")
+    timestamp = now.strftime("%H-%M-%S")
+    qubit_slug = "_".join(qubit_names)
+    method_slug = scan_method.lower().replace(" ", "_")
+    run_name = f"{timestamp}_{method_slug}_{qubit_slug}"
+    day_dir = Path(output_dir) / date_folder
+    run_dir = day_dir / run_name
+
+    suffix = 1
+    while run_dir.exists():
+        run_dir = day_dir / f"{run_name}_{suffix}"
+        suffix += 1
+
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+
 class ReadoutAmplitudeSweepSaver:
     def __init__(
         self,
@@ -51,8 +74,14 @@ class ReadoutAmplitudeSweepSaver:
         self,
         output_dir: str | Path = Path("data") / "readout_optimize",
         figure: Figure | None = None,
+        run_dir: str | Path | None = None,
     ) -> str:
-        run_dir = self._create_run_dir(output_dir)
+        run_dir = (
+            Path(run_dir)
+            if run_dir is not None
+            else self._create_run_dir(output_dir)
+        )
+        run_dir.mkdir(parents=True, exist_ok=True)
         summary = ReadoutAmplitudeSweepAnalysis(
             qubit_names=self.qubit_names,
             amplitudes=self.amplitudes,
@@ -84,25 +113,11 @@ class ReadoutAmplitudeSweepSaver:
         return str(run_dir)
 
     def _create_run_dir(self, output_dir: str | Path) -> Path:
-        now = datetime.now()
-        date_folder = now.strftime("%Y-%m-%d")
-        timestamp = now.strftime("%H-%M-%S")
-        qubit_slug = "_".join(self.qubit_names)
-        method_slug = self._slug(self.scan_method)
-        run_name = f"{timestamp}_{method_slug}_{qubit_slug}"
-        day_dir = Path(output_dir) / date_folder
-        run_dir = day_dir / run_name
-
-        suffix = 1
-        while run_dir.exists():
-            run_dir = day_dir / f"{run_name}_{suffix}"
-            suffix += 1
-
-        run_dir.mkdir(parents=True)
-        return run_dir
-
-    def _slug(self, value: str) -> str:
-        return value.lower().replace(" ", "_")
+        return create_readout_run_dir(
+            output_dir=output_dir,
+            scan_method=self.scan_method,
+            qubit_names=self.qubit_names,
+        )
 
     def _save_csv(self, path: Path) -> None:
         with path.open("w", newline="") as file:
@@ -255,7 +270,6 @@ class ReadoutAmplitudeSweepSaver:
                     output_dir
                     / f"{index:03d}_amplitude_{float(amplitude):.6g}{suffix}.png",
                     dpi=200,
-                    bbox_inches="tight",
                 )
 
     def _save_profile(self, run_dir: Path) -> str:

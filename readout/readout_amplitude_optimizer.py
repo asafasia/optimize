@@ -14,8 +14,12 @@ from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, Re
 
 from optimize.readout.utils.readout_scan_methods import scan_method_for
 from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
 from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from optimize.readout.utils.readout_sweep_artifacts import ReadoutAmplitudeSweepSaver
+from optimize.readout.utils.readout_sweep_artifacts import (
+    ReadoutAmplitudeSweepSaver,
+    create_readout_run_dir,
+)
 from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
 from resources.load_profile import load_task_manager
@@ -37,6 +41,10 @@ class ReadoutAmplitudeSweepSettings:
     failed_measurement_fidelity: float = 0.5
     profile_path: str | Path | None = None
     show_progress: bool = True
+    use_live_html_plotter: bool = True
+    live_html_output_dir: str | Path = Path("data") / "readout_optimize"
+    live_html_refresh_seconds: float = 1.0
+    live_html_open_browser: bool = True
     workflow_settings: ReadoutFidelityWorkflowSettings = field(
         default_factory=ReadoutFidelityWorkflowSettings
     )
@@ -76,6 +84,8 @@ class ReadoutAmplitudeSweepWorkflow:
         self.reset_label = self._reset_label()
         self.interrupted = False
         self.interrupt_reason: str | None = None
+        self.live_plotter: ReadoutLiveHtmlPlotter | None = None
+        self.run_dir: Path | None = None
 
     def run(self) -> dict[float, dict[str, Any]]:
         self.workflows = {}
@@ -90,7 +100,9 @@ class ReadoutAmplitudeSweepWorkflow:
         self.measurement_errors = {}
         self.interrupted = False
         self.interrupt_reason = None
+        self.run_dir = None
 
+        self._start_live_plotter()
         try:
             scan_method_for(self).run()
         except (KeyboardInterrupt, EOFError) as error:
@@ -99,7 +111,10 @@ class ReadoutAmplitudeSweepWorkflow:
             if not self.settings.fill_unfinished_on_interrupt:
                 raise
             self._fill_unfinished_fidelities()
+            self._update_live_plotter()
             print("\nReadout optimization interrupted; padded unfinished fidelities.")
+        finally:
+            self._finish_live_plotter()
 
         self._finish_progress(len(self.measured_amplitudes))
         return self.results
@@ -165,7 +180,14 @@ class ReadoutAmplitudeSweepWorkflow:
         saver.scan_method = str(ReadoutScanMethod(self.settings.method).value)
         saver.measurement_errors = self.measurement_errors
 
-        return saver.save(output_dir=output_dir, figure=figure)
+        run_dir = saver.save(
+            output_dir=output_dir,
+            figure=figure,
+            run_dir=self.run_dir,
+        )
+        if self.live_plotter is not None:
+            self.live_plotter.write_standalone_html(status="saved")
+        return run_dir
 
     def _measure_amplitude(self, amplitude: float) -> float:
         amplitude = float(amplitude)
@@ -196,6 +218,7 @@ class ReadoutAmplitudeSweepWorkflow:
         self.measured_amplitudes.append(amplitude)
         self._record_fidelities(result)
         self._record_iq_blob_figures(amplitude, workflow)
+        self._update_live_plotter(latest_amplitude=amplitude)
 
         return self._score_result(result)
 
@@ -235,7 +258,53 @@ class ReadoutAmplitudeSweepWorkflow:
             f"recorded fidelity={self.settings.failed_measurement_fidelity}. "
             f"{error_message}"
         )
+        self._update_live_plotter(latest_amplitude=amplitude)
         return float(self.settings.failed_measurement_fidelity)
+
+    def _start_live_plotter(self) -> None:
+        if not self.settings.use_live_html_plotter:
+            self.live_plotter = None
+            return
+
+        self.run_dir = create_readout_run_dir(
+            output_dir=self.settings.live_html_output_dir,
+            scan_method=str(ReadoutScanMethod(self.settings.method).value),
+            qubit_names=self.qubit_names,
+        )
+        self.live_plotter = ReadoutLiveHtmlPlotter(
+            output_dir=self.run_dir,
+            refresh_interval_seconds=self.settings.live_html_refresh_seconds,
+            open_browser=self.settings.live_html_open_browser,
+        )
+        qubits = ", ".join(self.qubit_names)
+        self.live_plotter.start(
+            title=f"Readout amplitude optimizer - {qubits}")
+
+    def _update_live_plotter(self, latest_amplitude: float | None = None) -> None:
+        if self.live_plotter is None:
+            return
+
+        latest_iq_figures = None
+        if latest_amplitude is not None:
+            latest_iq_figures = self.iq_blob_figures.get(
+                float(latest_amplitude))
+
+        self.live_plotter.update(
+            qubit_names=self.qubit_names,
+            amplitudes=self.measured_amplitudes,
+            fidelities=self.fidelities,
+            fidelity_errors=self.fidelity_errors,
+            separations=self.separations,
+            initial_amplitudes=self.initial_amplitudes,
+            readout_lengths=self.readout_lengths,
+            reset_label=self.reset_label,
+            latest_amplitude=latest_amplitude,
+            latest_iq_figures=latest_iq_figures,
+        )
+
+    def _finish_live_plotter(self) -> None:
+        if self.live_plotter is not None:
+            self.live_plotter.finish()
 
     def _set_readout_amplitude(self, amplitude: float) -> None:
         for qubit_name in self.qubit_names:
@@ -318,9 +387,46 @@ class ReadoutAmplitudeSweepWorkflow:
         if handler is None:
             return
 
-        figures = getattr(handler, "workflow_figures", [])
+        figures = self._handler_figures(handler)
         if figures:
             self.iq_blob_figures[float(amplitude)] = figures
+
+    def _handler_figures(self, handler: Any) -> list[Figure]:
+        figures = []
+        for attribute_name in ("workflow_figures", "figs", "figures"):
+            figures.extend(self._extract_figures(
+                getattr(handler, attribute_name, None)))
+
+        figure = getattr(handler, "fig", None)
+        figures.extend(self._extract_figures(figure))
+
+        unique_figures = []
+        seen_ids = set()
+        for figure in figures:
+            figure_id = id(figure)
+            if figure_id in seen_ids:
+                continue
+            unique_figures.append(figure)
+            seen_ids.add(figure_id)
+
+        return unique_figures
+
+    def _extract_figures(self, value: Any) -> list[Figure]:
+        if isinstance(value, Figure):
+            return [value]
+        if hasattr(value, "figure") and isinstance(value.figure, Figure):
+            return [value.figure]
+        if isinstance(value, dict):
+            figures = []
+            for item in value.values():
+                figures.extend(self._extract_figures(item))
+            return figures
+        if isinstance(value, (list, tuple, set)):
+            figures = []
+            for item in value:
+                figures.extend(self._extract_figures(item))
+            return figures
+        return []
 
     def _fill_unfinished_fidelities(self) -> None:
         for amplitude in self._unfinished_amplitudes():
@@ -382,20 +488,20 @@ if __name__ == "__main__":
         run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
-        display_handler_plots=False,
-        suppress_handler_output=True,
+        display_plots=False,
+        show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.13, 35),
+        amplitudes=np.linspace(0.002, 0.1, 50),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
+
     )
-    qubits = sorted([q for q in profile.qubits.keys() if q != "q1"],    key=lambda q: int(q[1:]))
-    
-    
+    qubits = sorted([q for q in profile.qubits.keys()],
+                    key=lambda q: int(q[1:]))
 
     for qubit_name in qubits:
 

@@ -107,14 +107,17 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     run_resonator=False,
     run_kernels=True,
     run_iq_blobs=True,
-    display_handler_plots=False,
-    suppress_handler_output=True,
+    display_plots=False,
+    show_handler_output=False,
+    report_timing=True,
+    task_status_poll_interval=10.0,
     reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 )
 
 optimizer_settings = ReadoutAmplitudeSweepSettings(
     amplitudes=np.linspace(0.005, 0.15, 20),
     method=ReadoutScanMethod.SWEEP,
+    use_live_html_plotter=True,
     workflow_settings=workflow_settings,
 )
 
@@ -130,6 +133,21 @@ fig = optimizer.plot()
 run_dir = optimizer.save_results(figure=fig)
 ```
 
+The experimental live HTML monitor opens by default while the optimizer runs.
+Set `use_live_html_plotter=False` to disable it. The monitor writes files under
+the same dated run folder used by `save_results()`. It shows the IQ blobs beside
+the current fidelity-vs-amplitude plot. The IQ panel includes a slider for
+moving through the acquired IQ blob figures from earlier amplitudes, and the
+HTML file can be opened again after the run. After `save_results()` finishes,
+`live_readout_optimizer.html` is standalone: the plot images are embedded in the
+HTML file, so it can be shared without the `iq_blobs/` folder.
+
+Set `report_timing=True` in `ReadoutFidelityWorkflowSettings` to print elapsed
+time for each workflow node. When running through the task manager, the workflow
+also polls for task status every `task_status_poll_interval` seconds if the task
+manager exposes a status API; otherwise it still prints how long it has been
+waiting.
+
 ## Saved Output
 
 Runs are saved by date and time:
@@ -142,6 +160,7 @@ data/readout_optimize/
       fidelities.csv
       summary.json
       report.md
+      live_readout_optimizer.html
       plot.png
       profile.json
       iq_blobs/
@@ -153,6 +172,7 @@ Files:
 - `fidelities.csv`: amplitude, fidelity, error, separation, and mean fidelity
 - `summary.json`: machine-readable analysis summary
 - `report.md`: human-readable report
+- `live_readout_optimizer.html`: live/final browser view of the run
 - `plot.png`: main optimizer plot
 - `profile.json`: copied or best-effort serialized profile snapshot
 - `iq_blobs/`: IQ blobs figures for each measured amplitude
