@@ -10,9 +10,10 @@ from typing import Any
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from qigeon import TaskSubmitterAsync
+from qratena import data
 from qratena.experiments.base_experiment import ExperimentSettings
 from qratena.experiments.experiment_handler import ExperimentHandler
-from qratena.experiments.iq_blobs import IQBlobsHandler
+from qratena.experiments.iq_blobs import IQBlobsHandler, IQBlobsSettings
 from qratena.experiments.kernel_traces_calculation import KernelTracesCalculationHandler
 from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHandler
 from qratena.system.components_params.profile import Profile
@@ -497,7 +498,7 @@ class ReadoutFidelityWorkflow:
     def _build_resonator_handler(self):
         settings = ExperimentSettings(
             log_level=0,
-            num_shots=1000,
+            num_shots=300,
             exportation_method=ExportationMethod.NONE,
             acquisition_type=AcquisitionType.SPECTROSCOPY,
             update_params_method=UpdateParamsMethod.NONE,
@@ -507,7 +508,7 @@ class ReadoutFidelityWorkflow:
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
-                mid_point=None, interval=200e6, num_points=120)],
+                mid_point=None, interval=100e6, num_points=120)],
             long_drive_pulse=False,
             qubit_names=[self.qubit_names[0]],
             settings=settings,
@@ -520,7 +521,7 @@ class ReadoutFidelityWorkflow:
     def _build_kernel_handler(self):
         settings = ExperimentSettings(
             log_level=0,
-            num_shots=10000,
+            num_shots=20000,
             exportation_method=ExportationMethod.NONE,
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
@@ -539,7 +540,7 @@ class ReadoutFidelityWorkflow:
         return handler
 
     def _build_iq_blobs_handler(self):
-        settings = ExperimentSettings(
+        settings = IQBlobsSettings(
             num_shots=10000,
             acquisition_type=AcquisitionType.INTEGRATION,
             averaging_mode=AveragingMode.SINGLE_SHOT,
@@ -549,6 +550,7 @@ class ReadoutFidelityWorkflow:
             reset=self.settings.reset,
             do_emulation=True,
             display_plots=self.settings.display_plots,
+            iq_plane_analysis='kde'
         )
 
         handler = IQBlobsHandler(
@@ -563,7 +565,7 @@ class ReadoutFidelityWorkflow:
 
 if __name__ == "__main__":
 
-    qubit_names = ["q9"]
+    qubit_names = ["q11"]
 
     profile = load_profile()
 
@@ -572,7 +574,7 @@ if __name__ == "__main__":
     readout_pulse = profile.qubits[qubit_names[0]].pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
-    readout_pulse.readout_amplitude = 0.01
+    readout_pulse.readout_amplitude = 0.05
 
     quantum_platform = create_platform(profile)
 
@@ -582,7 +584,7 @@ if __name__ == "__main__":
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=False,
+        run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
         display_plots=False,
@@ -598,7 +600,196 @@ if __name__ == "__main__":
         settings=settings,
     )
 
-    workflow.run()
+    workflow.run() 
 
 
+    #%%
+    
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    results = workflow.results['resonator']
+    data = results['q11']
+
+    g = data['acquired_results_g']
+    e = data['acquired_results_e']
+
+    # # Mean
+    g_mean = np.mean(g, axis=0)
+    e_mean = np.mean(e, axis=0)
+
+    x = np.arange(g.shape[1])
+
+    
+# %%
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # =========================================================
+    # Percentiles
+    # =========================================================
+
+    g_p25 = np.percentile(np.abs(g), 25, axis=0)
+    g_p75 = np.percentile(np.abs(g), 75, axis=0)
+
+    e_p25 = np.percentile(np.abs(e), 25, axis=0)
+    e_p75 = np.percentile(np.abs(e), 75, axis=0)
+
+    # =========================================================
+    # Difference + Separation
+    # =========================================================
+
+    difference = np.abs(e_mean - g_mean)
+
+    avg_std = 0.5 * (
+        np.std(g, axis=0) +
+        np.std(e, axis=0)
+    )
+
+    separation = difference / avg_std
+
+    # =========================================================
+    # Figure with shared x-axis
+    # =========================================================
+
+    fig, (ax1, ax2) = plt.subplots(
+        2,
+        1,
+        figsize=(14, 10),
+        sharex=True,
+        gridspec_kw={"height_ratios": [2, 1]},
+    )
+
+    # =========================================================
+    # TOP PLOT — Spectroscopy clouds
+    # =========================================================
+
+    # Ground
+    ax1.fill_between(
+        x,
+        g_p25,
+        g_p75,
+        color='tab:blue',
+        alpha=0.22,
+    )
+
+    ax1.plot(
+        x,
+        np.abs(g_mean),
+        '.-',
+        color='tab:blue',
+        lw=2,
+        ms=5,
+        label='Ground',
+    )
+
+    # Excited
+    ax1.fill_between(
+        x,
+        e_p25,
+        e_p75,
+        color='tab:orange',
+        alpha=0.22,
+    )
+
+    ax1.plot(
+        x,
+        np.abs(e_mean),
+        '.-',
+        color='tab:orange',
+        lw=2,
+        ms=5,
+        label='Excited',
+    )
+
+    ax1.set_ylabel("Amplitude", fontsize=14)
+
+    ax1.set_title(
+        "Resonator Spectroscopy Analysis",
+        fontsize=18,
+        pad=15,
+    )
+
+    ax1.grid(alpha=0.2)
+
+    ax1.legend(frameon=False)
+
+    # =========================================================
+    # BOTTOM PLOT — Difference + Separation
+    # =========================================================
+
+    # Difference
+    line1 = ax2.plot(
+        x,
+        difference,
+        color='black',
+        lw=2.5,
+        label=r'$|\mu_e - \mu_g|$',
+    )
+
+    ax2.set_ylabel("Difference", fontsize=13)
+
+    # Separation axis
+    ax3 = ax2.twinx()
+
+    line2 = ax3.plot(
+        x,
+        separation,
+        color='tab:red',
+        lw=2.5,
+        linestyle='--',
+        label=r'$\Delta / \sigma$',
+    )
+
+    ax3.set_ylabel(
+        r'Separation $\Delta / \sigma$',
+        fontsize=13,
+        color='tab:red',
+    )
+
+    ax3.tick_params(axis='y', labelcolor='tab:red')
+
+    ax2.grid(alpha=0.2)
+
+    # Shared x-axis
+    ax2.set_xlabel("Sweep Point", fontsize=14)
+
+    # =========================================================
+    # Combined legend for bottom plot
+    # =========================================================
+
+    lines = line1 + line2
+    labels = [l.get_label() for l in lines]
+
+    ax2.legend(
+        lines,
+        labels,
+        frameon=False,
+        loc='upper right',
+    )
+
+    # =========================================================
+    # Clean look
+    # =========================================================
+
+    for a in [ax1, ax2, ax3]:
+        a.spines['top'].set_visible(False)
+
+    ax1.spines['right'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    plt.show()
+# %%
+    i = 70
+    plt.figure(figsize=(8, 6))
+    plt.plot(g.T[i].real, g.T[i].imag, '.', label='Ground', alpha=0.5)
+    plt.plot(e.T[i].real, e.T[i].imag, '.', label='Excited', alpha=0.5)
+
+    
+    plt.xlabel("Real")
+    plt.ylabel("Imaginary")
+    plt.title("Ground State")
+    plt.legend()
+    plt.show()
 # %%

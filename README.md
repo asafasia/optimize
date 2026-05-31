@@ -135,12 +135,12 @@ run_dir = optimizer.save_results(figure=fig)
 
 The experimental live HTML monitor opens by default while the optimizer runs.
 Set `use_live_html_plotter=False` to disable it. The monitor writes files under
-the same dated run folder used by `save_results()`. It shows the IQ blobs beside
-the current fidelity-vs-amplitude plot. The IQ panel includes a slider for
-moving through the acquired IQ blob figures from earlier amplitudes, and the
-HTML file can be opened again after the run. After `save_results()` finishes,
-`live_readout_optimizer.html` is standalone: the plot images are embedded in the
-HTML file, so it can be shared without the `iq_blobs/` folder.
+the same dated run folder used by `save_results()`. It has tabs for resonator,
+kernel, and IQ blob figures beside the current fidelity-vs-amplitude plot. The figure panel
+includes a slider for moving through acquired figures from earlier amplitudes,
+and the HTML file can be opened again after the run. After `save_results()`
+finishes, `live_readout_optimizer.html` is standalone: the plot images are
+embedded in the HTML file, so it can be shared without the image folders.
 
 Set `report_timing=True` in `ReadoutFidelityWorkflowSettings` to print elapsed
 time for each workflow node. When running through the task manager, the workflow
@@ -164,6 +164,8 @@ data/readout_optimize/
       plot.png
       profile.json
       iq_blobs/
+      kernels/
+      resonator/
 ```
 
 Files:
@@ -176,6 +178,8 @@ Files:
 - `plot.png`: main optimizer plot
 - `profile.json`: copied or best-effort serialized profile snapshot
 - `iq_blobs/`: IQ blobs figures for each measured amplitude
+- `kernels/`: kernel figures for each measured amplitude
+- `resonator/`: resonator figures for each measured amplitude
 
 ## Interrupting a Run
 

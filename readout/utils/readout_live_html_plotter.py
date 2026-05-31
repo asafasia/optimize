@@ -7,6 +7,7 @@ import platform
 import subprocess
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
@@ -28,22 +29,45 @@ class ReadoutLiveHtmlPlotter:
         self.open_browser = open_browser
         self.html_path = self.output_dir / "live_readout_optimizer.html"
         self.iq_blobs_dir = self.output_dir / "iq_blobs"
+        self.kernels_dir = self.output_dir / "kernels"
+        self.resonator_dir = self.output_dir / "resonator"
         self.fidelity_history_dir = self.output_dir / "fidelity_history"
         self.fidelity_path = self.output_dir / "plot.png"
+        self.resonator_frequency_path = self.output_dir / "resonator_frequency.png"
         self._opened = False
         self._title = "Readout amplitude optimizer"
         self._latest_amplitude: float | None = None
         self._points = 0
         self._version = 0
         self._iq_history: list[dict[str, str | float]] = []
+        self._kernel_history: list[dict[str, str | float]] = []
+        self._resonator_history: list[dict[str, str | float]] = []
         self._report_html = "<p>No measurements yet.</p>"
+        self._workflow_label = "not started"
+        self._scan_method = "unknown"
+        self._optimization_parameters: dict[str, Any] = {}
 
-    def start(self, title: str = "Readout amplitude optimizer") -> None:
+    def start(
+        self,
+        title: str = "Readout amplitude optimizer",
+        workflow_label: str = "not started",
+        scan_method: str = "unknown",
+        optimization_parameters: dict[str, Any] | None = None,
+    ) -> None:
         self._title = title
+        self._workflow_label = workflow_label
+        self._scan_method = scan_method
+        self._optimization_parameters = optimization_parameters or {}
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.iq_blobs_dir.mkdir(parents=True, exist_ok=True)
+        self.kernels_dir.mkdir(parents=True, exist_ok=True)
+        self.resonator_dir.mkdir(parents=True, exist_ok=True)
         self.fidelity_history_dir.mkdir(parents=True, exist_ok=True)
         self._save_placeholder(self.fidelity_path, "Waiting for fidelity data")
+        self._save_placeholder(
+            self.resonator_frequency_path,
+            "Waiting for resonator frequency data",
+        )
         self._write_html(title=self._title)
 
         if self.open_browser and not self._opened:
@@ -59,13 +83,22 @@ class ReadoutLiveHtmlPlotter:
         fidelities: dict[str, list[float]],
         fidelity_errors: dict[str, list[float | None]],
         separations: dict[str, list[float | None]],
+        resonator_frequencies: dict[str, list[float | None]],
         initial_amplitudes: dict[str, float],
         readout_lengths: dict[str, float],
         reset_label: str,
         latest_amplitude: float | None,
         latest_iq_figures: list[Figure] | None,
+        latest_kernel_figures: list[Figure] | None = None,
+        latest_resonator_figures: list[Figure] | None = None,
+        workflow_label: str = "not started",
+        scan_method: str = "unknown",
+        optimization_parameters: dict[str, Any] | None = None,
     ) -> None:
         self._version += 1
+        self._workflow_label = workflow_label
+        self._scan_method = scan_method
+        self._optimization_parameters = optimization_parameters or {}
         if latest_amplitude is not None:
             self._latest_amplitude = latest_amplitude
         self._points = len(amplitudes)
@@ -84,6 +117,36 @@ class ReadoutLiveHtmlPlotter:
                         figure=figure,
                         figure_index=index - 1,
                         figure_count=len(latest_iq_figures),
+                    )
+        if latest_kernel_figures:
+            if latest_amplitude is not None:
+                point_index = max(0, len(amplitudes) - 1)
+                for index, figure in enumerate(latest_kernel_figures, start=1):
+                    label = f"A={float(latest_amplitude):.4g}"
+                    if len(latest_kernel_figures) > 1:
+                        label = f"{label}, fig {index}"
+                    self._save_kernel_history_figure(
+                        label=label,
+                        amplitude=float(latest_amplitude),
+                        point_index=point_index,
+                        figure=figure,
+                        figure_index=index - 1,
+                        figure_count=len(latest_kernel_figures),
+                    )
+        if latest_resonator_figures:
+            if latest_amplitude is not None:
+                point_index = max(0, len(amplitudes) - 1)
+                for index, figure in enumerate(latest_resonator_figures, start=1):
+                    label = f"A={float(latest_amplitude):.4g}"
+                    if len(latest_resonator_figures) > 1:
+                        label = f"{label}, fig {index}"
+                    self._save_resonator_history_figure(
+                        label=label,
+                        amplitude=float(latest_amplitude),
+                        point_index=point_index,
+                        figure=figure,
+                        figure_index=index - 1,
+                        figure_count=len(latest_resonator_figures),
                     )
 
         self._save_fidelity_plot(
@@ -105,6 +168,11 @@ class ReadoutLiveHtmlPlotter:
             initial_amplitudes=initial_amplitudes,
             readout_lengths=readout_lengths,
             reset_label=reset_label,
+        )
+        self._save_resonator_frequency_plot(
+            qubit_names=qubit_names,
+            amplitudes=amplitudes,
+            resonator_frequencies=resonator_frequencies,
         )
         self._update_report(
             qubit_names=qubit_names,
@@ -206,6 +274,56 @@ class ReadoutLiveHtmlPlotter:
             }
         )
 
+    def _save_kernel_history_figure(
+        self,
+        label: str,
+        amplitude: float,
+        point_index: int,
+        figure: Figure,
+        figure_index: int,
+        figure_count: int,
+    ) -> None:
+        suffix = "" if figure_count == 1 else f"_fig{figure_index + 1}"
+        path = (
+            self.kernels_dir
+            / f"{point_index:03d}_amplitude_{float(amplitude):.6g}{suffix}.png"
+        )
+        figure.savefig(path, dpi=140)
+        relative_path = path.relative_to(self.output_dir).as_posix()
+        self._kernel_history.append(
+            {
+                "label": label,
+                "amplitude": float(amplitude),
+                "kernel_src": relative_path,
+                "fidelity_src": "",
+            }
+        )
+
+    def _save_resonator_history_figure(
+        self,
+        label: str,
+        amplitude: float,
+        point_index: int,
+        figure: Figure,
+        figure_index: int,
+        figure_count: int,
+    ) -> None:
+        suffix = "" if figure_count == 1 else f"_fig{figure_index + 1}"
+        path = (
+            self.resonator_dir
+            / f"{point_index:03d}_amplitude_{float(amplitude):.6g}{suffix}.png"
+        )
+        figure.savefig(path, dpi=140)
+        relative_path = path.relative_to(self.output_dir).as_posix()
+        self._resonator_history.append(
+            {
+                "label": label,
+                "amplitude": float(amplitude),
+                "resonator_src": relative_path,
+                "fidelity_src": "",
+            }
+        )
+
     def _save_fidelity_history_plots(
         self,
         *,
@@ -236,6 +354,87 @@ class ReadoutLiveHtmlPlotter:
                 selected_amplitude=float(item["amplitude"]),
             )
             item["fidelity_src"] = path.relative_to(self.output_dir).as_posix()
+
+        for index, item in enumerate(self._kernel_history, start=1):
+            path = self.fidelity_history_dir / f"kernel_fidelity_{index:04d}.png"
+            self._save_fidelity_plot(
+                qubit_names=qubit_names,
+                amplitudes=amplitudes,
+                fidelities=fidelities,
+                fidelity_errors=fidelity_errors,
+                separations=separations,
+                initial_amplitudes=initial_amplitudes,
+                readout_lengths=readout_lengths,
+                reset_label=reset_label,
+                output_path=path,
+                selected_amplitude=float(item["amplitude"]),
+            )
+            item["fidelity_src"] = path.relative_to(self.output_dir).as_posix()
+
+        for index, item in enumerate(self._resonator_history, start=1):
+            path = self.fidelity_history_dir / f"resonator_fidelity_{index:04d}.png"
+            self._save_fidelity_plot(
+                qubit_names=qubit_names,
+                amplitudes=amplitudes,
+                fidelities=fidelities,
+                fidelity_errors=fidelity_errors,
+                separations=separations,
+                initial_amplitudes=initial_amplitudes,
+                readout_lengths=readout_lengths,
+                reset_label=reset_label,
+                output_path=path,
+                selected_amplitude=float(item["amplitude"]),
+            )
+            item["fidelity_src"] = path.relative_to(self.output_dir).as_posix()
+
+    def _save_resonator_frequency_plot(
+        self,
+        *,
+        qubit_names: list[str],
+        amplitudes: list[float],
+        resonator_frequencies: dict[str, list[float | None]],
+    ) -> None:
+        has_data = any(
+            value is not None
+            for qubit_name in qubit_names
+            for value in resonator_frequencies.get(qubit_name, [])
+        )
+        if not amplitudes or not has_data:
+            self._save_placeholder(
+                self.resonator_frequency_path,
+                "Waiting for resonator frequency data",
+            )
+            return
+
+        figure, axis = plt.subplots(figsize=(4.6, 3.1))
+        for qubit_name in qubit_names:
+            values = resonator_frequencies.get(qubit_name, [])
+            baseline = next(
+                (float(value) for value in values if value is not None),
+                None,
+            )
+            if baseline is None:
+                continue
+            x_values = []
+            y_values = []
+            for index, amplitude in enumerate(amplitudes):
+                if index >= len(values) or values[index] is None:
+                    continue
+                x_values.append(float(amplitude))
+                y_values.append((float(values[index]) - baseline) / 1e6)
+            if x_values:
+                axis.plot(x_values, y_values, marker="o", label=qubit_name)
+
+        axis.set_xlabel("Readout amplitude")
+        axis.set_ylabel("Drift from initial frequency (MHz)")
+        axis.set_title("Resonator frequency drift")
+        axis.axhline(0.0, color="#526071", linewidth=0.8, alpha=0.6)
+        axis.grid(True, alpha=0.25)
+        if len(qubit_names) > 1:
+            axis.legend()
+        figure.tight_layout()
+        figure.savefig(self.resonator_frequency_path, dpi=180)
+        plt.close(figure)
 
     def _save_placeholder(self, path: Path, text: str) -> None:
         figure, axis = plt.subplots(figsize=(7.5, 4.5))
@@ -286,6 +485,10 @@ class ReadoutLiveHtmlPlotter:
             for qubit_name in qubit_names
             if qubit_name in initial_amplitudes
         ) or "not available"
+        parameter_label = ", ".join(
+            f"{key}: {value}"
+            for key, value in self._optimization_parameters.items()
+        ) or "none"
 
         rows = []
         for qubit_name in qubit_names:
@@ -315,6 +518,9 @@ class ReadoutLiveHtmlPlotter:
             "<h2>Run Summary</h2>"
             "<div class=\"report-grid\">"
             f"<div><span>Qubits</span><strong>{html.escape(qubits_label)}</strong></div>"
+            f"<div><span>Workflow</span><strong>{html.escape(self._workflow_label)}</strong></div>"
+            f"<div><span>Optimization method</span><strong>{html.escape(self._scan_method)}</strong></div>"
+            f"<div><span>Optimization parameters</span><strong>{html.escape(parameter_label)}</strong></div>"
             f"<div><span>Measured points</span><strong>{len(amplitudes)}</strong></div>"
             f"<div><span>Latest amplitude</span><strong>{latest_label}</strong></div>"
             f"<div><span>Best mean amplitude</span><strong>{best_mean_amplitude:.6g}</strong></div>"
@@ -368,7 +574,7 @@ class ReadoutLiveHtmlPlotter:
         iq_items = [
             {
                 "label": f"Result {index} / {history_count} | {item['label']}",
-                "iqSrc": self._image_src(str(item["iq_src"]), embed_images),
+                "imageSrc": self._image_src(str(item["iq_src"]), embed_images),
                 "fidelitySrc": self._image_src(
                     str(item["fidelity_src"]),
                     embed_images,
@@ -376,16 +582,47 @@ class ReadoutLiveHtmlPlotter:
             }
             for index, item in enumerate(self._iq_history, start=1)
         ]
+        kernel_count = len(self._kernel_history)
+        kernel_items = [
+            {
+                "label": f"Result {index} / {kernel_count} | {item['label']}",
+                "imageSrc": self._image_src(str(item["kernel_src"]), embed_images),
+                "fidelitySrc": self._image_src(
+                    str(item["fidelity_src"]),
+                    embed_images,
+                ),
+            }
+            for index, item in enumerate(self._kernel_history, start=1)
+        ]
+        resonator_count = len(self._resonator_history)
+        resonator_items = [
+            {
+                "label": f"Result {index} / {resonator_count} | {item['label']}",
+                "imageSrc": self._image_src(str(item["resonator_src"]), embed_images),
+                "fidelitySrc": self._image_src(
+                    str(item["fidelity_src"]),
+                    embed_images,
+                ),
+            }
+            for index, item in enumerate(self._resonator_history, start=1)
+        ]
         iq_items_js = json.dumps(iq_items)
-        latest_iq_src = (
-            iq_items[-1]["iqSrc"]
-            if iq_items
+        kernel_items_js = json.dumps(kernel_items)
+        resonator_items_js = json.dumps(resonator_items)
+        active_items = iq_items or kernel_items or resonator_items
+        latest_experiment_src = (
+            active_items[-1]["imageSrc"]
+            if active_items
             else ""
         )
         fidelity_src = (
-            iq_items[-1]["fidelitySrc"]
-            if iq_items and iq_items[-1]["fidelitySrc"]
+            active_items[-1]["fidelitySrc"]
+            if active_items and active_items[-1]["fidelitySrc"]
             else self._image_src(self.fidelity_path.name, embed_images)
+        )
+        resonator_frequency_src = self._image_src(
+            self.resonator_frequency_path.name,
+            embed_images,
         )
         auto_refresh_script = (
             f"""
@@ -397,20 +634,30 @@ class ReadoutLiveHtmlPlotter:
     }}
     setInterval(() => {{
       refreshImage("fidelity");
+      refreshImage("resonator-frequency");
       window.location.reload();
     }}, refreshMs);
 """
             if auto_refresh
             else ""
         )
-        slider_max = max(0, len(iq_items) - 1)
+        slider_max = max(0, len(active_items) - 1)
         slider_value = slider_max
-        slider_disabled = "disabled" if len(iq_items) <= 1 else ""
+        slider_disabled = "disabled" if len(active_items) <= 1 else ""
         selected_iq_label = (
-            iq_items[-1]["label"]
-            if iq_items
-            else "waiting for IQ blobs"
+            active_items[-1]["label"]
+            if active_items
+            else "waiting for experiment figures"
         )
+        if iq_items:
+            active_tab = "iq"
+            experiment_title = "Acquired IQ blobs"
+        elif kernel_items:
+            active_tab = "kernel"
+            experiment_title = "Kernel experiments"
+        else:
+            active_tab = "resonator"
+            experiment_title = "Resonator results"
 
         self.html_path.write_text(
             f"""<!doctype html>
@@ -450,6 +697,26 @@ class ReadoutLiveHtmlPlotter:
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 14px;
       margin-bottom: 14px;
+    }}
+    .tabs {{
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }}
+    .tab-button {{
+      border: 1px solid #cfd8e5;
+      background: #ffffff;
+      color: #526071;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+    }}
+    .tab-button.active {{
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #ffffff;
     }}
     figure {{
       margin: 0;
@@ -549,8 +816,21 @@ class ReadoutLiveHtmlPlotter:
       font-weight: 650;
       background: #fbfcfe;
     }}
+    .lower-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(300px, 0.85fr);
+      gap: 14px;
+      align-items: start;
+    }}
+    .resonator-frequency img {{
+      max-height: 330px;
+      object-fit: contain;
+    }}
     @media (max-width: 1100px) {{
       .grid {{
+        grid-template-columns: 1fr;
+      }}
+      .lower-grid {{
         grid-template-columns: 1fr;
       }}
       .report-grid {{
@@ -573,10 +853,15 @@ class ReadoutLiveHtmlPlotter:
   </header>
   <main class="grid">
     <figure>
-      <figcaption>Acquired IQ blobs</figcaption>
+      <div class="tabs">
+        <button id="tab-iq" class="tab-button" type="button">IQ blobs</button>
+        <button id="tab-kernel" class="tab-button" type="button">Kernels</button>
+        <button id="tab-resonator" class="tab-button" type="button">Resonator</button>
+      </div>
+      <figcaption id="experiment-title">{experiment_title}</figcaption>
       <div class="iq-controls">
         <input
-          id="iq-slider"
+          id="experiment-slider"
           type="range"
           min="0"
           max="{slider_max}"
@@ -584,55 +869,110 @@ class ReadoutLiveHtmlPlotter:
           step="1"
           {slider_disabled}
         >
-        <span id="iq-label" class="iq-label">{selected_iq_label}</span>
+        <span id="experiment-label" class="iq-label">{selected_iq_label}</span>
       </div>
-      <img id="iq" src="{latest_iq_src}" alt="IQ blobs by amplitude">
+      <img id="experiment-image" src="{latest_experiment_src}" alt="Experiment figure by amplitude">
     </figure>
     <figure>
       <figcaption>Readout fidelity scan</figcaption>
       <img id="fidelity" src="{fidelity_src}" alt="Fidelity versus amplitude">
     </figure>
   </main>
-  {self._report_html}
+  <section class="lower-grid">
+    {self._report_html}
+    <figure class="resonator-frequency">
+      <figcaption>Resonator frequency drift</figcaption>
+      <img id="resonator-frequency" src="{resonator_frequency_src}" alt="Resonator frequency drift from initial frequency versus readout amplitude">
+    </figure>
+  </section>
   <script>
     const iqItems = {iq_items_js};
-    const iqSlider = document.getElementById("iq-slider");
-    const iqLabel = document.getElementById("iq-label");
-    const iqImage = document.getElementById("iq");
+    const kernelItems = {kernel_items_js};
+    const resonatorItems = {resonator_items_js};
+    const itemsByTab = {{ iq: iqItems, kernel: kernelItems, resonator: resonatorItems }};
+    const titleByTab = {{ iq: "Acquired IQ blobs", kernel: "Kernel experiments", resonator: "Resonator results" }};
+    const slider = document.getElementById("experiment-slider");
+    const label = document.getElementById("experiment-label");
+    const experimentImage = document.getElementById("experiment-image");
+    const experimentTitle = document.getElementById("experiment-title");
     const fidelityImage = document.getElementById("fidelity");
-    const sliderStorageKey = "readout-live-iq-slider-index";
+    const tabButtons = {{
+      iq: document.getElementById("tab-iq"),
+      kernel: document.getElementById("tab-kernel"),
+      resonator: document.getElementById("tab-resonator"),
+    }};
+    let activeTab = "{active_tab}";
+    const sliderStoragePrefix = "readout-live-slider-index-";
+    const tabStorageKey = "readout-live-active-tab";
+
+    function activeItems() {{
+      return itemsByTab[activeTab] || [];
+    }}
 
     function clampIndex(index) {{
-      return Math.max(0, Math.min(iqItems.length - 1, index));
+      const items = activeItems();
+      return Math.max(0, Math.min(items.length - 1, index));
     }}
 
     function showIqIndex(index) {{
-      if (!iqItems.length) {{
+      const items = activeItems();
+      if (!items.length) {{
+        label.textContent = activeTab === "kernel" ? "waiting for kernel figures" : "waiting for IQ blobs";
+        experimentImage.removeAttribute("src");
+        slider.disabled = true;
         return;
       }}
       const clampedIndex = clampIndex(index);
-      const item = iqItems[clampedIndex];
-      iqSlider.value = String(clampedIndex);
-      window.localStorage.setItem(sliderStorageKey, String(clampedIndex));
-      iqImage.src = item.iqSrc;
+      const item = items[clampedIndex];
+      slider.min = "0";
+      slider.max = String(Math.max(0, items.length - 1));
+      slider.disabled = items.length <= 1;
+      slider.value = String(clampedIndex);
+      window.localStorage.setItem(sliderStoragePrefix + activeTab, String(clampedIndex));
+      experimentImage.src = item.imageSrc;
       if (item.fidelitySrc) {{
         fidelityImage.src = item.fidelitySrc;
       }}
-      iqLabel.textContent = item.label;
+      label.textContent = item.label;
     }}
 
-    const storedIndex = Number(window.localStorage.getItem(sliderStorageKey));
-    if (Number.isInteger(storedIndex) && storedIndex >= 0 && storedIndex < iqItems.length) {{
-      iqSlider.value = String(storedIndex);
-      showIqIndex(storedIndex);
+    function setActiveTab(tabName) {{
+      if (!itemsByTab[tabName]) {{
+        return;
+      }}
+      activeTab = tabName;
+      window.localStorage.setItem(tabStorageKey, tabName);
+      experimentTitle.textContent = titleByTab[activeTab];
+      for (const [name, button] of Object.entries(tabButtons)) {{
+        button.classList.toggle("active", name === activeTab);
+      }}
+      const storedIndex = Number(window.localStorage.getItem(sliderStoragePrefix + activeTab));
+      showIqIndex(Number.isInteger(storedIndex) ? storedIndex : activeItems().length - 1);
     }}
 
-    iqSlider.addEventListener("input", () => {{
-      showIqIndex(Number(iqSlider.value));
+    for (const [name, button] of Object.entries(tabButtons)) {{
+      button.disabled = !itemsByTab[name].length;
+      button.addEventListener("click", () => setActiveTab(name));
+    }}
+
+    const storedTab = window.localStorage.getItem(tabStorageKey);
+    if (storedTab && itemsByTab[storedTab] && itemsByTab[storedTab].length) {{
+      activeTab = storedTab;
+    }}
+    if (!itemsByTab[activeTab].length && kernelItems.length) {{
+      activeTab = "kernel";
+    }}
+    if (!itemsByTab[activeTab].length && resonatorItems.length) {{
+      activeTab = "resonator";
+    }}
+    setActiveTab(activeTab);
+
+    slider.addEventListener("input", () => {{
+      showIqIndex(Number(slider.value));
     }});
 
     window.addEventListener("keydown", (event) => {{
-      if (!iqItems.length) {{
+      if (!activeItems().length) {{
         return;
       }}
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {{
@@ -640,7 +980,7 @@ class ReadoutLiveHtmlPlotter:
       }}
       event.preventDefault();
       const step = event.key === "ArrowRight" ? 1 : -1;
-      showIqIndex(Number(iqSlider.value) + step);
+      showIqIndex(Number(slider.value) + step);
     }});
 {auto_refresh_script}
   </script>

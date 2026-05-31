@@ -50,6 +50,7 @@ class ReadoutAmplitudeSweepSaver:
         readout_lengths: dict[str, float] | None = None,
         fidelity_errors: dict[str, list[float | None]] | None = None,
         separations: dict[str, list[float | None]] | None = None,
+        resonator_frequencies: dict[str, list[float | None]] | None = None,
         iq_blob_figures: dict[float, list[Figure]] | None = None,
         profile_path: str | Path | None = None,
     ) -> None:
@@ -62,6 +63,7 @@ class ReadoutAmplitudeSweepSaver:
         self.readout_lengths = readout_lengths or {}
         self.fidelity_errors = fidelity_errors or {}
         self.separations = separations or {}
+        self.resonator_frequencies = resonator_frequencies or {}
         self.iq_blob_figures = iq_blob_figures or {}
         self.profile_path = profile_path
         self.interrupted = False
@@ -69,6 +71,8 @@ class ReadoutAmplitudeSweepSaver:
         self.reset_label: str | None = None
         self.scan_method: str = "unknown"
         self.measurement_errors: dict[float, str] = {}
+        self.kernel_figures: dict[float, list[Figure]] = {}
+        self.resonator_figures: dict[float, list[Figure]] = {}
 
     def save(
         self,
@@ -92,6 +96,7 @@ class ReadoutAmplitudeSweepSaver:
         summary["interrupt_reason"] = self.interrupt_reason
         summary["scan_method"] = self.scan_method
         summary["measurement_errors"] = self.measurement_errors
+        summary["resonator_frequencies"] = self.resonator_frequencies
 
         np.savez_compressed(
             run_dir / "data.npz",
@@ -99,6 +104,7 @@ class ReadoutAmplitudeSweepSaver:
             fidelities=np.array([self.fidelities], dtype=object),
             fidelity_errors=np.array([self.fidelity_errors], dtype=object),
             separations=np.array([self.separations], dtype=object),
+            resonator_frequencies=np.array([self.resonator_frequencies], dtype=object),
             results=np.array([self.results], dtype=object),
             measurement_errors=np.array([self.measurement_errors], dtype=object),
         )
@@ -109,6 +115,8 @@ class ReadoutAmplitudeSweepSaver:
         self._save_report(run_dir / "report.md", summary, profile_status)
         self._save_plot(run_dir / "plot.png", figure)
         self._save_iq_blob_figures(run_dir / "iq_blobs")
+        self._save_kernel_figures(run_dir / "kernels")
+        self._save_resonator_figures(run_dir / "resonator")
 
         return str(run_dir)
 
@@ -128,6 +136,7 @@ class ReadoutAmplitudeSweepSaver:
                     *self.qubit_names,
                     *[f"{qubit}_fidelity_error" for qubit in self.qubit_names],
                     *[f"{qubit}_separation" for qubit in self.qubit_names],
+                    *[f"{qubit}_resonator_frequency" for qubit in self.qubit_names],
                     "mean_fidelity",
                     "status",
                     "error",
@@ -147,12 +156,21 @@ class ReadoutAmplitudeSweepSaver:
                     self._optional_metric_at(self.separations, qubit_name, index)
                     for qubit_name in self.qubit_names
                 ]
+                row_resonator_frequencies = [
+                    self._optional_metric_at(
+                        self.resonator_frequencies,
+                        qubit_name,
+                        index,
+                    )
+                    for qubit_name in self.qubit_names
+                ]
                 writer.writerow(
                     [
                         float(amplitude),
                         *row_fidelities,
                         *row_errors,
                         *row_separations,
+                        *row_resonator_frequencies,
                         float(np.mean(row_fidelities)),
                         self._measurement_status(float(amplitude)),
                         self.measurement_errors.get(float(amplitude), ""),
@@ -226,10 +244,12 @@ class ReadoutAmplitudeSweepSaver:
                 "## Saved Files",
                 "",
                 "- `data.npz`: amplitudes, fidelities, and raw workflow results.",
-                "- `fidelities.csv`: tabular amplitudes and fidelity values.",
+                "- `fidelities.csv`: tabular amplitudes, fidelity values, and resonator frequencies.",
                 "- `summary.json`: machine-readable analysis summary.",
                 "- `plot.png`: readout fidelity plot.",
                 "- `iq_blobs/`: IQ blobs plots for each measured amplitude.",
+                "- `kernels/`: kernel plots for each measured amplitude.",
+                "- `resonator/`: resonator plots for each measured amplitude.",
                 f"- `profile.json`: {profile_status}.",
             ]
         )
@@ -264,6 +284,38 @@ class ReadoutAmplitudeSweepSaver:
 
         for index, amplitude in enumerate(self.amplitudes):
             figures = self.iq_blob_figures.get(float(amplitude), [])
+            for figure_index, figure in enumerate(figures):
+                suffix = "" if len(figures) == 1 else f"_fig{figure_index + 1}"
+                figure.savefig(
+                    output_dir
+                    / f"{index:03d}_amplitude_{float(amplitude):.6g}{suffix}.png",
+                    dpi=200,
+                )
+
+    def _save_kernel_figures(self, output_dir: Path) -> None:
+        if not self.kernel_figures:
+            return
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for index, amplitude in enumerate(self.amplitudes):
+            figures = self.kernel_figures.get(float(amplitude), [])
+            for figure_index, figure in enumerate(figures):
+                suffix = "" if len(figures) == 1 else f"_fig{figure_index + 1}"
+                figure.savefig(
+                    output_dir
+                    / f"{index:03d}_amplitude_{float(amplitude):.6g}{suffix}.png",
+                    dpi=200,
+                )
+
+    def _save_resonator_figures(self, output_dir: Path) -> None:
+        if not self.resonator_figures:
+            return
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for index, amplitude in enumerate(self.amplitudes):
+            figures = self.resonator_figures.get(float(amplitude), [])
             for figure_index, figure in enumerate(figures):
                 suffix = "" if len(figures) == 1 else f"_fig{figure_index + 1}"
                 figure.savefig(

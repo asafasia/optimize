@@ -77,7 +77,12 @@ class ReadoutAmplitudeSweepWorkflow:
         self.separations: dict[str, list[float | None]] = {
             qubit_name: [] for qubit_name in self.qubit_names
         }
+        self.resonator_frequencies: dict[str, list[float | None]] = {
+            qubit_name: [] for qubit_name in self.qubit_names
+        }
         self.iq_blob_figures: dict[float, list[Figure]] = {}
+        self.kernel_figures: dict[float, list[Figure]] = {}
+        self.resonator_figures: dict[float, list[Figure]] = {}
         self.measurement_errors: dict[float, str] = {}
         self.initial_amplitudes = self._readout_amplitudes()
         self.readout_lengths = self._readout_lengths()
@@ -96,7 +101,12 @@ class ReadoutAmplitudeSweepWorkflow:
             qubit_name: [] for qubit_name in self.qubit_names
         }
         self.separations = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.resonator_frequencies = {
+            qubit_name: [] for qubit_name in self.qubit_names
+        }
         self.iq_blob_figures = {}
+        self.kernel_figures = {}
+        self.resonator_figures = {}
         self.measurement_errors = {}
         self.interrupted = False
         self.interrupt_reason = None
@@ -150,6 +160,7 @@ class ReadoutAmplitudeSweepWorkflow:
         summary["interrupted"] = self.interrupted
         summary["interrupt_reason"] = self.interrupt_reason
         summary["measurement_errors"] = self.measurement_errors
+        summary["resonator_frequencies"] = self.resonator_frequencies
         return summary
 
     def save_results(
@@ -171,9 +182,12 @@ class ReadoutAmplitudeSweepWorkflow:
             readout_lengths=self.readout_lengths,
             fidelity_errors=self.fidelity_errors,
             separations=self.separations,
+            resonator_frequencies=self.resonator_frequencies,
             profile_path=self.settings.profile_path,
         )
         saver.iq_blob_figures = self.iq_blob_figures
+        saver.kernel_figures = self.kernel_figures
+        saver.resonator_figures = self.resonator_figures
         saver.interrupted = self.interrupted
         saver.interrupt_reason = self.interrupt_reason
         saver.reset_label = self.reset_label
@@ -217,7 +231,10 @@ class ReadoutAmplitudeSweepWorkflow:
         self.results[amplitude] = result
         self.measured_amplitudes.append(amplitude)
         self._record_fidelities(result)
+        self._record_resonator_frequencies(workflow)
         self._record_iq_blob_figures(amplitude, workflow)
+        self._record_kernel_figures(amplitude, workflow)
+        self._record_resonator_figures(amplitude, workflow)
         self._update_live_plotter(latest_amplitude=amplitude)
 
         return self._score_result(result)
@@ -252,6 +269,7 @@ class ReadoutAmplitudeSweepWorkflow:
             )
             self.fidelity_errors[qubit_name].append(None)
             self.separations[qubit_name].append(None)
+            self.resonator_frequencies[qubit_name].append(None)
 
         print(
             f"\nMeasurement failed at amplitude {amplitude:.6g}; "
@@ -278,7 +296,11 @@ class ReadoutAmplitudeSweepWorkflow:
         )
         qubits = ", ".join(self.qubit_names)
         self.live_plotter.start(
-            title=f"Readout amplitude optimizer - {qubits}")
+            title=f"Readout amplitude optimizer - {qubits}",
+            workflow_label=self._workflow_label(),
+            scan_method=str(ReadoutScanMethod(self.settings.method).value),
+            optimization_parameters=self._optimization_parameters(),
+        )
 
     def _update_live_plotter(self, latest_amplitude: float | None = None) -> None:
         if self.live_plotter is None:
@@ -288,6 +310,14 @@ class ReadoutAmplitudeSweepWorkflow:
         if latest_amplitude is not None:
             latest_iq_figures = self.iq_blob_figures.get(
                 float(latest_amplitude))
+        latest_kernel_figures = None
+        if latest_amplitude is not None:
+            latest_kernel_figures = self.kernel_figures.get(
+                float(latest_amplitude))
+        latest_resonator_figures = None
+        if latest_amplitude is not None:
+            latest_resonator_figures = self.resonator_figures.get(
+                float(latest_amplitude))
 
         self.live_plotter.update(
             qubit_names=self.qubit_names,
@@ -295,11 +325,17 @@ class ReadoutAmplitudeSweepWorkflow:
             fidelities=self.fidelities,
             fidelity_errors=self.fidelity_errors,
             separations=self.separations,
+            resonator_frequencies=self.resonator_frequencies,
             initial_amplitudes=self.initial_amplitudes,
             readout_lengths=self.readout_lengths,
             reset_label=self.reset_label,
             latest_amplitude=latest_amplitude,
             latest_iq_figures=latest_iq_figures,
+            latest_kernel_figures=latest_kernel_figures,
+            latest_resonator_figures=latest_resonator_figures,
+            workflow_label=self._workflow_label(),
+            scan_method=str(ReadoutScanMethod(self.settings.method).value),
+            optimization_parameters=self._optimization_parameters(),
         )
 
     def _finish_live_plotter(self) -> None:
@@ -368,6 +404,20 @@ class ReadoutAmplitudeSweepWorkflow:
                 )
             )
 
+    def _record_resonator_frequencies(
+        self,
+        workflow: ReadoutFidelityWorkflow,
+    ) -> None:
+        handler = workflow.resonator_handler
+        for qubit_name in self.qubit_names:
+            frequency = None
+            if handler is not None:
+                handler_data = getattr(handler, "data", {}) or {}
+                qubit_data = handler_data.get(qubit_name, {}) or {}
+                if "optimal_resonance_freq" in qubit_data:
+                    frequency = float(qubit_data["optimal_resonance_freq"])
+            self.resonator_frequencies[qubit_name].append(frequency)
+
     def _first_metric_value(
         self,
         data: dict[str, Any],
@@ -390,6 +440,70 @@ class ReadoutAmplitudeSweepWorkflow:
         figures = self._handler_figures(handler)
         if figures:
             self.iq_blob_figures[float(amplitude)] = figures
+
+    def _record_kernel_figures(
+        self,
+        amplitude: float,
+        workflow: ReadoutFidelityWorkflow,
+    ) -> None:
+        handler = workflow.kernel_handler
+        if handler is None:
+            return
+
+        figures = self._handler_figures(handler)
+        if figures:
+            self.kernel_figures[float(amplitude)] = figures
+
+    def _record_resonator_figures(
+        self,
+        amplitude: float,
+        workflow: ReadoutFidelityWorkflow,
+    ) -> None:
+        handler = workflow.resonator_handler
+        if handler is None:
+            return
+
+        figures = self._handler_figures(handler)
+        if figures:
+            self.resonator_figures[float(amplitude)] = figures
+
+    def _workflow_label(self) -> str:
+        enabled_nodes = []
+        workflow_settings = self.settings.workflow_settings
+        if workflow_settings.run_resonator:
+            enabled_nodes.append("resonator")
+        if workflow_settings.run_kernels:
+            enabled_nodes.append("kernels")
+        if workflow_settings.run_iq_blobs:
+            enabled_nodes.append("iq blobs")
+
+        mode = "local emulation" if workflow_settings.do_emulation else "task manager"
+        return f"{' -> '.join(enabled_nodes) or 'none'} ({mode})"
+
+    def _optimization_parameters(self) -> dict[str, Any]:
+        method = ReadoutScanMethod(self.settings.method)
+        parameters: dict[str, Any] = {
+            "amplitudes": len(list(self.settings.amplitudes)),
+        }
+        if method == ReadoutScanMethod.GRADIENT:
+            parameters.update(
+                {
+                    "gradient_max_iterations": self.settings.gradient_max_iterations,
+                    "gradient_initial_step": self.settings.gradient_initial_step,
+                    "gradient_min_step": self.settings.gradient_min_step,
+                    "gradient_fidelity_tolerance": self.settings.gradient_fidelity_tolerance,
+                }
+            )
+        elif method == ReadoutScanMethod.GOLDEN_SECTION:
+            parameters.update(
+                {
+                    "golden_section_max_iterations": self.settings.golden_section_max_iterations,
+                    "golden_section_interval_tolerance": self.settings.golden_section_interval_tolerance,
+                    "fidelity_tolerance": self.settings.gradient_fidelity_tolerance,
+                }
+            )
+
+        return parameters
 
     def _handler_figures(self, handler: Any) -> list[Figure]:
         figures = []
@@ -437,6 +551,7 @@ class ReadoutAmplitudeSweepWorkflow:
                 )
                 self.fidelity_errors[qubit_name].append(None)
                 self.separations[qubit_name].append(None)
+                self.resonator_frequencies[qubit_name].append(None)
 
     def _unfinished_amplitudes(self) -> list[float]:
         configured_amplitudes = [
@@ -480,6 +595,8 @@ if __name__ == "__main__":
 
     profile = load_profile()
 
+    # profile.qubits['q13'].readout_resonator_frequency.value= 4.933e9
+
     task_manager = load_task_manager()
 
     workflow_settings = ReadoutFidelityWorkflowSettings(
@@ -495,13 +612,15 @@ if __name__ == "__main__":
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.002, 0.1, 50),
+        amplitudes=np.linspace(0.002, 0.12, 30),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
 
     )
     qubits = sorted([q for q in profile.qubits.keys()],
                     key=lambda q: int(q[1:]))
+
+    qubits = ['q14']
 
     for qubit_name in qubits:
 
@@ -518,3 +637,5 @@ if __name__ == "__main__":
         plt.show()
 
 # %%
+
+
