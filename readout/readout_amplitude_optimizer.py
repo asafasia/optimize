@@ -593,12 +593,8 @@ if __name__ == "__main__":
     from resources import *
     from resources.load_profile import load_profile
 
-    profile = load_profile()
-
-    profile.qubits['q6'].readout_resonator_frequency.value= 5.14e9
+    profile = load_profile()    # 
     
-    
-
     task_manager = load_task_manager()
 
     workflow_settings = ReadoutFidelityWorkflowSettings(
@@ -607,7 +603,7 @@ if __name__ == "__main__":
         run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
-        display_plots=False,
+        do_plotting=False,
         show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
     )
@@ -638,5 +634,4 @@ if __name__ == "__main__":
         plt.show()
 
 # %%
-
 

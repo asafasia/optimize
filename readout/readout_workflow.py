@@ -4,6 +4,7 @@ import contextlib
 import io
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
@@ -42,8 +43,7 @@ class ReadoutFidelityWorkflowSettings:
     run_resonator: bool = True
     run_kernels: bool = True
     run_iq_blobs: bool = True
-    plot_handlers: bool = True
-    display_plots: bool = True
+    do_plotting: bool = False
     show_handler_output: bool = True
     report_timing: bool = True
     task_status_poll_interval: float = 10.0
@@ -154,19 +154,7 @@ class ReadoutFidelityWorkflow:
         with self._optional_output_suppression():
             result = handler.run()
 
-        new_figures = set(plt.get_fignums()) - existing_figures
-        figures = self._handler_figures(handler)
-        figures.extend(plt.figure(number) for number in sorted(new_figures))
-        figures = self._unique_figures(figures)
-        if not figures and self.settings.plot_handlers:
-            with self._optional_output_suppression():
-                figures = self._plot_handler(handler)
-
-        if figures:
-            handler.workflow_figures = figures
-            if not self.settings.display_plots:
-                for figure in figures:
-                    plt.close(figure)
+        self._retain_handler_figures(handler, existing_figures)
 
         return result
 
@@ -270,43 +258,51 @@ class ReadoutFidelityWorkflow:
         self._analyze_handler_result(handler)
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
+        existing_figures = set(plt.get_fignums())
         with self._optional_output_suppression():
             handler.analyze()
             handler.update_system_params()
 
-        if not self.settings.plot_handlers:
-            return
+        self._retain_handler_figures(handler, existing_figures)
 
-        with self._optional_output_suppression():
-            figures = self._plot_handler(handler)
+    def _retain_handler_figures(
+        self,
+        handler: ExperimentHandler,
+        existing_figures: set[int],
+    ) -> None:
+        new_figures = set(plt.get_fignums()) - existing_figures
+        figures = self._handler_figures(handler)
+        figures.extend(plt.figure(number) for number in sorted(new_figures))
+        figures = self._unique_figures(figures)
+
+        if not figures:
+            figures = self._plot_handler_for_artifacts(handler)
 
         if figures:
             handler.workflow_figures = figures
-            if not self.settings.display_plots:
-                for figure in figures:
-                    plt.close(figure)
+            for figure in figures:
+                plt.close(figure)
 
-    def _plot_handler(self, handler: ExperimentHandler) -> list[Figure]:
+    def _plot_handler_for_artifacts(self, handler: ExperimentHandler) -> list[Figure]:
         existing_figures = set(plt.get_fignums())
-        handler_settings = getattr(handler, "settings", None)
-        original_display_plots = getattr(
-            handler_settings, "display_plots", None)
-        if original_display_plots is not None:
-            handler_settings.display_plots = True
-
+        original_show = plt.show
         try:
-            plot_result = handler.plot()
+            plt.show = lambda *args, **kwargs: None
+            with plt.ioff(), self._optional_output_suppression():
+                plot_result = handler.plot()
         finally:
-            if original_display_plots is not None:
-                handler_settings.display_plots = original_display_plots
+            plt.show = original_show
 
         if isinstance(plot_result, Figure):
-            return [plot_result]
-        if isinstance(plot_result, (list, tuple)):
-            return [figure for figure in plot_result if isinstance(figure, Figure)]
+            figures = [plot_result]
+        elif isinstance(plot_result, (list, tuple)):
+            figures = [
+                figure for figure in plot_result if isinstance(figure, Figure)
+            ]
+        else:
+            figures = self._handler_figures(handler)
 
         new_figures = set(plt.get_fignums()) - existing_figures
-        figures = self._handler_figures(handler)
         figures.extend(plt.figure(number) for number in sorted(new_figures))
         return self._unique_figures(figures)
 
@@ -504,9 +500,9 @@ class ReadoutFidelityWorkflow:
             exportation_method=ExportationMethod.NONE,
             acquisition_type=AcquisitionType.SPECTROSCOPY,
             update_params_method=UpdateParamsMethod.NONE,
-            configure_logging=not self.settings.show_handler_output,
+            configure_logging=self.settings.show_handler_output,
             do_emulation=True,
-            display_plots=self.settings.display_plots,
+            do_plotting=self.settings.do_plotting,
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
@@ -528,9 +524,9 @@ class ReadoutFidelityWorkflow:
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
             averaging_mode=AveragingMode.CYCLIC,
-            configure_logging=not self.settings.show_handler_output,
+            configure_logging=self.settings.show_handler_output,
             do_emulation=True,
-            display_plots=self.settings.display_plots,
+            do_plotting=self.settings.do_plotting,
         )
         handler = KernelTracesCalculationHandler(
             qubit_names=[self.qubit_names[0]],
@@ -548,11 +544,11 @@ class ReadoutFidelityWorkflow:
             averaging_mode=AveragingMode.SINGLE_SHOT,
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
-            configure_logging=not self.settings.show_handler_output,
+            configure_logging=self.settings.show_handler_output,
             reset=self.settings.reset,
             do_emulation=True,
-            display_plots=self.settings.display_plots,
-            iq_plane_analysis='kde'
+            do_plotting=self.settings.do_plotting,
+            iq_plane_analysis='kde',
         )
 
         handler = IQBlobsHandler(
@@ -587,12 +583,12 @@ if __name__ == "__main__":
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=True,
+        run_resonator=False,
         run_kernels=True,
         run_iq_blobs=True,
-        display_plots=False,
-        show_handler_output=True,
+        show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+        do_plotting=False,
 
     )
 
@@ -605,4 +601,16 @@ if __name__ == "__main__":
 
     workflow.run()
 
+    
 
+    handlers = {
+        "resonator": workflow.resonator_handler,
+        "kernels": workflow.kernel_handler,
+        "iq_blobs": workflow.iq_blobs_handler,
+    }
+    
+    for name, handler in handlers.items():
+        if handler is not None:
+            print(f"\n{name} results:")
+            print(handler.figsures if hasattr(handler, "figures") else "No figures")
+            print(handler.data if hasattr(handler, "data") else "No data")

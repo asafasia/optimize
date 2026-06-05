@@ -166,7 +166,7 @@ class ActiveResetIQBlobsComparison:
             run_resonator=False,
             run_kernels=False,
             run_iq_blobs=True,
-            display_plots=False,
+            do_plotting=False,
             show_handler_output=self.settings.show_handler_output,
             report_timing=True,
             task_status_poll_interval=self.settings.task_status_poll_interval,

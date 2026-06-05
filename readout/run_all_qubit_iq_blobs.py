@@ -52,7 +52,7 @@ def main() -> None:
         run_resonator=False,
         run_kernels=False,
         run_iq_blobs=True,
-        display_plots=False,
+        do_plotting=False,
         show_handler_output=args.show_handler_output,
         report_timing=True,
         task_status_poll_interval=args.task_status_poll_interval,
