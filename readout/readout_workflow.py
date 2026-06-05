@@ -32,6 +32,8 @@ from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
 from laboneq.dsl.session import Session
 
+import httpx
+
 
 @dataclass(slots=True)
 class ReadoutFidelityWorkflowSettings:
@@ -508,7 +510,7 @@ class ReadoutFidelityWorkflow:
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
-                mid_point=None, interval=100e6, num_points=120)],
+                mid_point=None, interval=15e6, num_points=120)],
             long_drive_pulse=False,
             qubit_names=[self.qubit_names[0]],
             settings=settings,
@@ -565,20 +567,21 @@ class ReadoutFidelityWorkflow:
 
 if __name__ == "__main__":
 
-    qubit_names = ["q11"]
+    qubit_names = ["q6"]
 
     profile = load_profile()
 
     task_manager = load_task_manager()
+    
+    qubit = profile.qubits[qubit_names[0]]
 
-    readout_pulse = profile.qubits[qubit_names[0]].pulses[
+    readout_pulse = qubit.pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
-    readout_pulse.readout_amplitude = 0.05
 
-    quantum_platform = create_platform(profile)
-
-    setup = quantum_platform.setup
+    readout_pulse.readout_amplitude = 0.1
+    qubit.readout_resonator_frequency.value = 5.14e9
+    
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
@@ -600,196 +603,6 @@ if __name__ == "__main__":
         settings=settings,
     )
 
-    workflow.run() 
+    workflow.run()
 
 
-    #%%
-    
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    results = workflow.results['resonator']
-    data = results['q11']
-
-    g = data['acquired_results_g']
-    e = data['acquired_results_e']
-
-    # # Mean
-    g_mean = np.mean(g, axis=0)
-    e_mean = np.mean(e, axis=0)
-
-    x = np.arange(g.shape[1])
-
-    
-# %%
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    # =========================================================
-    # Percentiles
-    # =========================================================
-
-    g_p25 = np.percentile(np.abs(g), 25, axis=0)
-    g_p75 = np.percentile(np.abs(g), 75, axis=0)
-
-    e_p25 = np.percentile(np.abs(e), 25, axis=0)
-    e_p75 = np.percentile(np.abs(e), 75, axis=0)
-
-    # =========================================================
-    # Difference + Separation
-    # =========================================================
-
-    difference = np.abs(e_mean - g_mean)
-
-    avg_std = 0.5 * (
-        np.std(g, axis=0) +
-        np.std(e, axis=0)
-    )
-
-    separation = difference / avg_std
-
-    # =========================================================
-    # Figure with shared x-axis
-    # =========================================================
-
-    fig, (ax1, ax2) = plt.subplots(
-        2,
-        1,
-        figsize=(14, 10),
-        sharex=True,
-        gridspec_kw={"height_ratios": [2, 1]},
-    )
-
-    # =========================================================
-    # TOP PLOT — Spectroscopy clouds
-    # =========================================================
-
-    # Ground
-    ax1.fill_between(
-        x,
-        g_p25,
-        g_p75,
-        color='tab:blue',
-        alpha=0.22,
-    )
-
-    ax1.plot(
-        x,
-        np.abs(g_mean),
-        '.-',
-        color='tab:blue',
-        lw=2,
-        ms=5,
-        label='Ground',
-    )
-
-    # Excited
-    ax1.fill_between(
-        x,
-        e_p25,
-        e_p75,
-        color='tab:orange',
-        alpha=0.22,
-    )
-
-    ax1.plot(
-        x,
-        np.abs(e_mean),
-        '.-',
-        color='tab:orange',
-        lw=2,
-        ms=5,
-        label='Excited',
-    )
-
-    ax1.set_ylabel("Amplitude", fontsize=14)
-
-    ax1.set_title(
-        "Resonator Spectroscopy Analysis",
-        fontsize=18,
-        pad=15,
-    )
-
-    ax1.grid(alpha=0.2)
-
-    ax1.legend(frameon=False)
-
-    # =========================================================
-    # BOTTOM PLOT — Difference + Separation
-    # =========================================================
-
-    # Difference
-    line1 = ax2.plot(
-        x,
-        difference,
-        color='black',
-        lw=2.5,
-        label=r'$|\mu_e - \mu_g|$',
-    )
-
-    ax2.set_ylabel("Difference", fontsize=13)
-
-    # Separation axis
-    ax3 = ax2.twinx()
-
-    line2 = ax3.plot(
-        x,
-        separation,
-        color='tab:red',
-        lw=2.5,
-        linestyle='--',
-        label=r'$\Delta / \sigma$',
-    )
-
-    ax3.set_ylabel(
-        r'Separation $\Delta / \sigma$',
-        fontsize=13,
-        color='tab:red',
-    )
-
-    ax3.tick_params(axis='y', labelcolor='tab:red')
-
-    ax2.grid(alpha=0.2)
-
-    # Shared x-axis
-    ax2.set_xlabel("Sweep Point", fontsize=14)
-
-    # =========================================================
-    # Combined legend for bottom plot
-    # =========================================================
-
-    lines = line1 + line2
-    labels = [l.get_label() for l in lines]
-
-    ax2.legend(
-        lines,
-        labels,
-        frameon=False,
-        loc='upper right',
-    )
-
-    # =========================================================
-    # Clean look
-    # =========================================================
-
-    for a in [ax1, ax2, ax3]:
-        a.spines['top'].set_visible(False)
-
-    ax1.spines['right'].set_visible(False)
-    ax2.spines['right'].set_visible(False)
-
-    plt.tight_layout()
-    plt.show()
-# %%
-    i = 70
-    plt.figure(figsize=(8, 6))
-    plt.plot(g.T[i].real, g.T[i].imag, '.', label='Ground', alpha=0.5)
-    plt.plot(e.T[i].real, e.T[i].imag, '.', label='Excited', alpha=0.5)
-
-    
-    plt.xlabel("Real")
-    plt.ylabel("Imaginary")
-    plt.title("Ground State")
-    plt.legend()
-    plt.show()
-# %%

@@ -595,7 +595,9 @@ if __name__ == "__main__":
 
     profile = load_profile()
 
-    # profile.qubits['q13'].readout_resonator_frequency.value= 4.933e9
+    profile.qubits['q6'].readout_resonator_frequency.value= 5.14e9
+    
+    
 
     task_manager = load_task_manager()
 
@@ -608,11 +610,10 @@ if __name__ == "__main__":
         display_plots=False,
         show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
-
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.002, 0.12, 30),
+        amplitudes=np.linspace(0.05, 0.1, 13),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
 
@@ -620,7 +621,7 @@ if __name__ == "__main__":
     qubits = sorted([q for q in profile.qubits.keys()],
                     key=lambda q: int(q[1:]))
 
-    qubits = ['q14']
+    qubits = ['q6']
 
     for qubit_name in qubits:
 
