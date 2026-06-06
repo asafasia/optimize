@@ -30,7 +30,7 @@ class ReadoutAmplitudeSweepSettings:
     amplitudes: Any
     method: ReadoutScanMethod | str = ReadoutScanMethod.SWEEP
     zoom_in_iterations: int = 3
-    zoom_in_shrink_factor: float = 0.75
+    zoom_in_shrink_factor: float = 0.5
     gradient_max_iterations: int = 5
     gradient_initial_step: float | None = None
     gradient_min_step: float = 0.001
@@ -653,11 +653,12 @@ if __name__ == "__main__":
         show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
     )
-
+    
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.02, 5),
+        amplitudes=np.linspace(0.001, 0.02, 4),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.ZOOM_IN,
+        zoom_in_iterations=4
 
     )
     qubits = sorted([q for q in profile.qubits.keys()],

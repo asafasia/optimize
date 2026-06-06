@@ -55,7 +55,9 @@ class ReadoutAmplitudeSweepPlotter:
                 sorted_amplitudes,
                 fidelity_values,
                 marker="o",
+                linewidth=2.4,
                 label=f"Qubit {qubit_name}",
+                zorder=5,
             )[0]
             color = line.get_color()
             fidelity_errors = self._sorted_optional_values(
@@ -235,9 +237,10 @@ class ReadoutAmplitudeSweepPlotter:
                 [np.nan if value is None else value for value in average_roundnesses],
                 color="red",
                 marker="s",
-                linewidth=1.8,
+                linewidth=1.5,
+                alpha=0.75,
                 label="Average roundness",
-                zorder=3,
+                zorder=2,
             )
 
         fidelity_ax.set_title(self._title())
