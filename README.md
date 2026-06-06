@@ -48,6 +48,23 @@ Measures every configured amplitude.
 method=ReadoutScanMethod.SWEEP
 ```
 
+### Zoom In
+
+Runs the configured amplitude vector as a rough sweep, then repeatedly sweeps
+around the best point with a narrower interval. Each iteration keeps the same
+number of points as the initial vector and remains within its original bounds.
+
+Defaults:
+
+```python
+method=ReadoutScanMethod.ZOOM_IN
+zoom_in_iterations=3
+zoom_in_shrink_factor=0.75
+```
+
+`zoom_in_iterations` includes the initial rough sweep. A shrink factor of `0.75`
+makes each new interval 75% as wide as the preceding interval.
+
 ### Gradient
 
 A primitive gradient-ascent style scan.
@@ -221,7 +238,7 @@ continue_on_measurement_error=False
 ```text
 readout/readout_amplitude_optimizer.py  # main optimizer workflow
 readout/readout_workflow.py             # single-amplitude fidelity workflow
-readout/utils/readout_scan_methods.py   # sweep / gradient / golden-section scans
+readout/utils/readout_scan_methods.py   # sweep / zoom-in / gradient / golden-section scans
 readout/utils/readout_scan_types.py     # scan method enum
 readout/utils/readout_sweep_analysis.py # analysis summary
 readout/utils/readout_sweep_plotter.py  # plotting
@@ -230,7 +247,8 @@ readout/utils/readout_sweep_artifacts.py # saving artifacts
 
 ## Notes
 
-- `amplitudes` are the actual sweep points for `SWEEP`.
+- `amplitudes` are the actual sweep points for `SWEEP` and the initial rough
+  sweep points and bounds for `ZOOM_IN`.
 - In `GRADIENT` and `GOLDEN_SECTION`, `amplitudes` define the search bounds and
   maximum number of measured amplitudes.
 - Fidelity scoring currently uses the mean readout fidelity across the selected

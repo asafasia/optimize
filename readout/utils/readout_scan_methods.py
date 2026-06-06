@@ -22,6 +22,88 @@ class ReadoutSweepScan:
             self.optimizer._measure_amplitude(amplitude)
 
 
+class ReadoutZoomInScan:
+    def __init__(self, optimizer: Any) -> None:
+        self.optimizer = optimizer
+
+    def run(self) -> None:
+        initial_amplitudes = [
+            float(amplitude)
+            for amplitude in self.optimizer.settings.amplitudes
+        ]
+        if not initial_amplitudes:
+            raise ValueError("Zoom-in scan requires at least one amplitude.")
+
+        iterations = int(self.optimizer.settings.zoom_in_iterations)
+        shrink_factor = float(self.optimizer.settings.zoom_in_shrink_factor)
+        if iterations < 1:
+            raise ValueError("zoom_in_iterations must be at least 1.")
+        if not 0.0 < shrink_factor < 1.0:
+            raise ValueError("zoom_in_shrink_factor must be between 0 and 1.")
+
+        point_count = len(initial_amplitudes)
+        original_lower = min(initial_amplitudes)
+        original_upper = max(initial_amplitudes)
+        lower_bound = original_lower
+        upper_bound = original_upper
+        amplitudes = initial_amplitudes
+        total = iterations * point_count
+        progress_index = 0
+        all_scores: dict[float, float] = {}
+
+        for iteration in range(iterations):
+            scores = {}
+            for amplitude in amplitudes:
+                progress_index += 1
+                self.optimizer._show_progress(progress_index, total, amplitude)
+                scores[amplitude] = self.optimizer._measure_amplitude(amplitude)
+            all_scores.update(scores)
+
+            if (
+                iteration == iterations - 1
+                or point_count < 2
+                or original_lower == original_upper
+            ):
+                break
+
+            best_amplitude = max(all_scores, key=all_scores.get)
+            lower_bound, upper_bound = self._zoomed_interval(
+                lower_bound=lower_bound,
+                upper_bound=upper_bound,
+                best_amplitude=best_amplitude,
+                shrink_factor=shrink_factor,
+                original_lower=original_lower,
+                original_upper=original_upper,
+            )
+            amplitudes = [
+                float(amplitude)
+                for amplitude in np.linspace(lower_bound, upper_bound, point_count)
+            ]
+
+    def _zoomed_interval(
+        self,
+        *,
+        lower_bound: float,
+        upper_bound: float,
+        best_amplitude: float,
+        shrink_factor: float,
+        original_lower: float,
+        original_upper: float,
+    ) -> tuple[float, float]:
+        width = (upper_bound - lower_bound) * shrink_factor
+        new_lower = best_amplitude - width / 2
+        new_upper = best_amplitude + width / 2
+
+        if new_lower < original_lower:
+            new_upper += original_lower - new_lower
+            new_lower = original_lower
+        if new_upper > original_upper:
+            new_lower -= new_upper - original_upper
+            new_upper = original_upper
+
+        return max(original_lower, new_lower), min(original_upper, new_upper)
+
+
 class ReadoutGradientAscentScan:
     def __init__(self, optimizer: Any) -> None:
         self.optimizer = optimizer
@@ -233,11 +315,18 @@ class ReadoutGoldenSectionScan:
 
 def scan_method_for(
     optimizer: Any,
-) -> ReadoutSweepScan | ReadoutGradientAscentScan | ReadoutGoldenSectionScan:
+) -> (
+    ReadoutSweepScan
+    | ReadoutZoomInScan
+    | ReadoutGradientAscentScan
+    | ReadoutGoldenSectionScan
+):
     method = ReadoutScanMethod(optimizer.settings.method)
 
     if method == ReadoutScanMethod.SWEEP:
         return ReadoutSweepScan(optimizer)
+    if method == ReadoutScanMethod.ZOOM_IN:
+        return ReadoutZoomInScan(optimizer)
     if method == ReadoutScanMethod.GRADIENT:
         return ReadoutGradientAscentScan(optimizer)
     if method == ReadoutScanMethod.GOLDEN_SECTION:

@@ -29,6 +29,8 @@ from resources.load_profile import load_task_manager
 class ReadoutAmplitudeSweepSettings:
     amplitudes: Any
     method: ReadoutScanMethod | str = ReadoutScanMethod.SWEEP
+    zoom_in_iterations: int = 3
+    zoom_in_shrink_factor: float = 0.75
     gradient_max_iterations: int = 5
     gradient_initial_step: float | None = None
     gradient_min_step: float = 0.001
@@ -521,7 +523,14 @@ class ReadoutAmplitudeSweepWorkflow:
         parameters: dict[str, Any] = {
             "amplitudes": len(list(self.settings.amplitudes)),
         }
-        if method == ReadoutScanMethod.GRADIENT:
+        if method == ReadoutScanMethod.ZOOM_IN:
+            parameters.update(
+                {
+                    "zoom_in_iterations": self.settings.zoom_in_iterations,
+                    "zoom_in_shrink_factor": self.settings.zoom_in_shrink_factor,
+                }
+            )
+        elif method == ReadoutScanMethod.GRADIENT:
             parameters.update(
                 {
                     "gradient_max_iterations": self.settings.gradient_max_iterations,
@@ -646,9 +655,9 @@ if __name__ == "__main__":
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.02, 7),
+        amplitudes=np.linspace(0.001, 0.02, 5),
         workflow_settings=workflow_settings,
-        method=ReadoutScanMethod.SWEEP,
+        method=ReadoutScanMethod.ZOOM_IN,
 
     )
     qubits = sorted([q for q in profile.qubits.keys()],
