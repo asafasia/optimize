@@ -77,6 +77,9 @@ class ReadoutAmplitudeSweepWorkflow:
         self.separations: dict[str, list[float | None]] = {
             qubit_name: [] for qubit_name in self.qubit_names
         }
+        self.roundnesses: dict[str, list[float | None]] = {
+            qubit_name: [] for qubit_name in self.qubit_names
+        }
         self.resonator_frequencies: dict[str, list[float | None]] = {
             qubit_name: [] for qubit_name in self.qubit_names
         }
@@ -86,6 +89,7 @@ class ReadoutAmplitudeSweepWorkflow:
         self.measurement_errors: dict[float, str] = {}
         self.initial_amplitudes = self._readout_amplitudes()
         self.readout_lengths = self._readout_lengths()
+        self.readout_frequencies = self._readout_frequencies()
         self.reset_label = self._reset_label()
         self.interrupted = False
         self.interrupt_reason: str | None = None
@@ -101,6 +105,7 @@ class ReadoutAmplitudeSweepWorkflow:
             qubit_name: [] for qubit_name in self.qubit_names
         }
         self.separations = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.roundnesses = {qubit_name: [] for qubit_name in self.qubit_names}
         self.resonator_frequencies = {
             qubit_name: [] for qubit_name in self.qubit_names
         }
@@ -143,6 +148,7 @@ class ReadoutAmplitudeSweepWorkflow:
         plotter.reset_label = self.reset_label
         plotter.fidelity_errors = self.fidelity_errors
         plotter.separations = self.separations
+        plotter.roundnesses = self.roundnesses
 
         return plotter.plot()
 
@@ -161,6 +167,8 @@ class ReadoutAmplitudeSweepWorkflow:
         summary["interrupt_reason"] = self.interrupt_reason
         summary["measurement_errors"] = self.measurement_errors
         summary["resonator_frequencies"] = self.resonator_frequencies
+        summary["readout_frequencies"] = self.readout_frequencies
+        summary["roundnesses"] = self.roundnesses
         return summary
 
     def save_results(
@@ -182,7 +190,9 @@ class ReadoutAmplitudeSweepWorkflow:
             readout_lengths=self.readout_lengths,
             fidelity_errors=self.fidelity_errors,
             separations=self.separations,
+            roundnesses=self.roundnesses,
             resonator_frequencies=self.resonator_frequencies,
+            readout_frequencies=self.readout_frequencies,
             profile_path=self.settings.profile_path,
         )
         saver.iq_blob_figures = self.iq_blob_figures
@@ -232,6 +242,7 @@ class ReadoutAmplitudeSweepWorkflow:
         self.measured_amplitudes.append(amplitude)
         self._record_fidelities(result)
         self._record_resonator_frequencies(workflow)
+        self.readout_frequencies = self._readout_frequencies()
         self._record_iq_blob_figures(amplitude, workflow)
         self._record_kernel_figures(amplitude, workflow)
         self._record_resonator_figures(amplitude, workflow)
@@ -269,6 +280,7 @@ class ReadoutAmplitudeSweepWorkflow:
             )
             self.fidelity_errors[qubit_name].append(None)
             self.separations[qubit_name].append(None)
+            self.roundnesses[qubit_name].append(None)
             self.resonator_frequencies[qubit_name].append(None)
 
         print(
@@ -325,9 +337,11 @@ class ReadoutAmplitudeSweepWorkflow:
             fidelities=self.fidelities,
             fidelity_errors=self.fidelity_errors,
             separations=self.separations,
+            roundnesses=self.roundnesses,
             resonator_frequencies=self.resonator_frequencies,
             initial_amplitudes=self.initial_amplitudes,
             readout_lengths=self.readout_lengths,
+            readout_frequencies=self.readout_frequencies,
             reset_label=self.reset_label,
             latest_amplitude=latest_amplitude,
             latest_iq_figures=latest_iq_figures,
@@ -363,6 +377,18 @@ class ReadoutAmplitudeSweepWorkflow:
                 SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
             lengths[qubit_name] = float(readout_pulse.readout_duration)
         return lengths
+
+    def _readout_frequencies(self) -> dict[str, float]:
+        frequencies = {}
+        for qubit_name in self.qubit_names:
+            frequency = getattr(
+                self.profile.qubits[qubit_name].readout_resonator_frequency,
+                "value",
+                None,
+            )
+            if frequency is not None:
+                frequencies[qubit_name] = float(frequency)
+        return frequencies
 
     def _reset_label(self) -> str:
         reset = self.settings.workflow_settings.reset
@@ -400,6 +426,16 @@ class ReadoutAmplitudeSweepWorkflow:
                         "readout_separation",
                         "iq_separation",
                         "state_separation",
+                    ],
+                )
+            )
+            self.roundnesses[qubit_name].append(
+                self._first_metric_value(
+                    qubit_result,
+                    [
+                        "average_roundness",
+                        "averaged_roundness",
+                        "roundness",
                     ],
                 )
             )
@@ -551,6 +587,7 @@ class ReadoutAmplitudeSweepWorkflow:
                 )
                 self.fidelity_errors[qubit_name].append(None)
                 self.separations[qubit_name].append(None)
+                self.roundnesses[qubit_name].append(None)
                 self.resonator_frequencies[qubit_name].append(None)
 
     def _unfinished_amplitudes(self) -> list[float]:
@@ -600,7 +637,7 @@ if __name__ == "__main__":
     workflow_settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=True,
+        run_resonator=False,
         run_kernels=True,
         run_iq_blobs=True,
         do_plotting=False,
@@ -609,7 +646,7 @@ if __name__ == "__main__":
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.02, 30),
+        amplitudes=np.linspace(0.001, 0.02, 7),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
 
@@ -634,4 +671,3 @@ if __name__ == "__main__":
         plt.show()
 
 # %%
-

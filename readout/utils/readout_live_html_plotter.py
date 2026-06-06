@@ -83,9 +83,11 @@ class ReadoutLiveHtmlPlotter:
         fidelities: dict[str, list[float]],
         fidelity_errors: dict[str, list[float | None]],
         separations: dict[str, list[float | None]],
+        roundnesses: dict[str, list[float | None]],
         resonator_frequencies: dict[str, list[float | None]],
         initial_amplitudes: dict[str, float],
         readout_lengths: dict[str, float],
+        readout_frequencies: dict[str, float],
         reset_label: str,
         latest_amplitude: float | None,
         latest_iq_figures: list[Figure] | None,
@@ -155,6 +157,7 @@ class ReadoutLiveHtmlPlotter:
             fidelities=fidelities,
             fidelity_errors=fidelity_errors,
             separations=separations,
+            roundnesses=roundnesses,
             initial_amplitudes=initial_amplitudes,
             readout_lengths=readout_lengths,
             reset_label=reset_label,
@@ -165,6 +168,7 @@ class ReadoutLiveHtmlPlotter:
             fidelities=fidelities,
             fidelity_errors=fidelity_errors,
             separations=separations,
+            roundnesses=roundnesses,
             initial_amplitudes=initial_amplitudes,
             readout_lengths=readout_lengths,
             reset_label=reset_label,
@@ -182,6 +186,7 @@ class ReadoutLiveHtmlPlotter:
             separations=separations,
             initial_amplitudes=initial_amplitudes,
             readout_lengths=readout_lengths,
+            readout_frequencies=readout_frequencies,
             reset_label=reset_label,
             latest_amplitude=latest_amplitude,
         )
@@ -222,6 +227,7 @@ class ReadoutLiveHtmlPlotter:
         fidelities: dict[str, list[float]],
         fidelity_errors: dict[str, list[float | None]],
         separations: dict[str, list[float | None]],
+        roundnesses: dict[str, list[float | None]],
         initial_amplitudes: dict[str, float],
         readout_lengths: dict[str, float],
         reset_label: str,
@@ -242,6 +248,7 @@ class ReadoutLiveHtmlPlotter:
         )
         plotter.fidelity_errors = fidelity_errors
         plotter.separations = separations
+        plotter.roundnesses = roundnesses
         plotter.reset_label = reset_label
         plotter.selected_amplitude = selected_amplitude
 
@@ -332,6 +339,7 @@ class ReadoutLiveHtmlPlotter:
         fidelities: dict[str, list[float]],
         fidelity_errors: dict[str, list[float | None]],
         separations: dict[str, list[float | None]],
+        roundnesses: dict[str, list[float | None]],
         initial_amplitudes: dict[str, float],
         readout_lengths: dict[str, float],
         reset_label: str,
@@ -347,6 +355,7 @@ class ReadoutLiveHtmlPlotter:
                 fidelities=fidelities,
                 fidelity_errors=fidelity_errors,
                 separations=separations,
+                roundnesses=roundnesses,
                 initial_amplitudes=initial_amplitudes,
                 readout_lengths=readout_lengths,
                 reset_label=reset_label,
@@ -363,6 +372,7 @@ class ReadoutLiveHtmlPlotter:
                 fidelities=fidelities,
                 fidelity_errors=fidelity_errors,
                 separations=separations,
+                roundnesses=roundnesses,
                 initial_amplitudes=initial_amplitudes,
                 readout_lengths=readout_lengths,
                 reset_label=reset_label,
@@ -379,6 +389,7 @@ class ReadoutLiveHtmlPlotter:
                 fidelities=fidelities,
                 fidelity_errors=fidelity_errors,
                 separations=separations,
+                roundnesses=roundnesses,
                 initial_amplitudes=initial_amplitudes,
                 readout_lengths=readout_lengths,
                 reset_label=reset_label,
@@ -454,6 +465,7 @@ class ReadoutLiveHtmlPlotter:
         separations: dict[str, list[float | None]],
         initial_amplitudes: dict[str, float],
         readout_lengths: dict[str, float],
+        readout_frequencies: dict[str, float],
         reset_label: str,
         latest_amplitude: float | None,
     ) -> None:
@@ -479,6 +491,11 @@ class ReadoutLiveHtmlPlotter:
             f"{qubit_name}: {readout_lengths[qubit_name] * 1e9:.0f} ns"
             for qubit_name in qubit_names
             if qubit_name in readout_lengths
+        ) or "not available"
+        frequencies_label = ", ".join(
+            f"{qubit_name}: {readout_frequencies[qubit_name] / 1e9:.6f} GHz"
+            for qubit_name in qubit_names
+            if qubit_name in readout_frequencies
         ) or "not available"
         initial_label = ", ".join(
             f"{qubit_name}: {initial_amplitudes[qubit_name]:.6g}"
@@ -527,6 +544,7 @@ class ReadoutLiveHtmlPlotter:
             f"<div><span>Best mean fidelity</span><strong>{best_mean_fidelity:.4f}</strong></div>"
             f"<div><span>Initial amplitudes</span><strong>{html.escape(initial_label)}</strong></div>"
             f"<div><span>Readout length</span><strong>{html.escape(lengths_label)}</strong></div>"
+            f"<div><span>Readout frequency</span><strong>{html.escape(frequencies_label)}</strong></div>"
             f"<div><span>Reset</span><strong>{html.escape(reset_label)}</strong></div>"
             "</div>"
             "<table>"

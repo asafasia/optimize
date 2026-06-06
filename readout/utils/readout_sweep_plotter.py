@@ -24,6 +24,7 @@ class ReadoutAmplitudeSweepPlotter:
         self.reset_label: str | None = None
         self.fidelity_errors: dict[str, list[float | None]] = {}
         self.separations: dict[str, list[float | None]] = {}
+        self.roundnesses: dict[str, list[float | None]] = {}
         self.selected_amplitude: float | None = None
 
     def plot(self) -> Figure:
@@ -224,6 +225,21 @@ class ReadoutAmplitudeSweepPlotter:
                             size=135,
                         )
 
+        average_roundnesses = self._average_optional_values(
+            self.roundnesses,
+            sorted_indices,
+        )
+        if any(value is not None for value in average_roundnesses):
+            fidelity_ax.plot(
+                sorted_amplitudes,
+                [np.nan if value is None else value for value in average_roundnesses],
+                color="red",
+                marker="s",
+                linewidth=1.8,
+                label="Average roundness",
+                zorder=3,
+            )
+
         fidelity_ax.set_title(self._title())
         fidelity_ax.set_ylabel("Readout Fidelity")
         fidelity_ax.set_ylim(0.5, 1.0)
@@ -275,6 +291,21 @@ class ReadoutAmplitudeSweepPlotter:
             return [None for _ in sorted_indices]
 
         return [values[index] for index in sorted_indices]
+
+    def _average_optional_values(
+        self,
+        metrics: dict[str, list[float | None]],
+        sorted_indices: np.ndarray,
+    ) -> list[float | None]:
+        averages = []
+        for index in sorted_indices:
+            values = [
+                float(qubit_values[index])
+                for qubit_values in metrics.values()
+                if index < len(qubit_values) and qubit_values[index] is not None
+            ]
+            averages.append(float(np.mean(values)) if values else None)
+        return averages
 
     def _error_band(
         self,

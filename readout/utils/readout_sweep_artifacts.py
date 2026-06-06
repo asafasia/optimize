@@ -50,7 +50,9 @@ class ReadoutAmplitudeSweepSaver:
         readout_lengths: dict[str, float] | None = None,
         fidelity_errors: dict[str, list[float | None]] | None = None,
         separations: dict[str, list[float | None]] | None = None,
+        roundnesses: dict[str, list[float | None]] | None = None,
         resonator_frequencies: dict[str, list[float | None]] | None = None,
+        readout_frequencies: dict[str, float] | None = None,
         iq_blob_figures: dict[float, list[Figure]] | None = None,
         profile_path: str | Path | None = None,
     ) -> None:
@@ -63,7 +65,9 @@ class ReadoutAmplitudeSweepSaver:
         self.readout_lengths = readout_lengths or {}
         self.fidelity_errors = fidelity_errors or {}
         self.separations = separations or {}
+        self.roundnesses = roundnesses or {}
         self.resonator_frequencies = resonator_frequencies or {}
+        self.readout_frequencies = readout_frequencies or {}
         self.iq_blob_figures = iq_blob_figures or {}
         self.profile_path = profile_path
         self.interrupted = False
@@ -97,6 +101,8 @@ class ReadoutAmplitudeSweepSaver:
         summary["scan_method"] = self.scan_method
         summary["measurement_errors"] = self.measurement_errors
         summary["resonator_frequencies"] = self.resonator_frequencies
+        summary["readout_frequencies"] = self.readout_frequencies
+        summary["roundnesses"] = self.roundnesses
 
         np.savez_compressed(
             run_dir / "data.npz",
@@ -104,6 +110,7 @@ class ReadoutAmplitudeSweepSaver:
             fidelities=np.array([self.fidelities], dtype=object),
             fidelity_errors=np.array([self.fidelity_errors], dtype=object),
             separations=np.array([self.separations], dtype=object),
+            roundnesses=np.array([self.roundnesses], dtype=object),
             resonator_frequencies=np.array([self.resonator_frequencies], dtype=object),
             results=np.array([self.results], dtype=object),
             measurement_errors=np.array([self.measurement_errors], dtype=object),
@@ -136,6 +143,7 @@ class ReadoutAmplitudeSweepSaver:
                     *self.qubit_names,
                     *[f"{qubit}_fidelity_error" for qubit in self.qubit_names],
                     *[f"{qubit}_separation" for qubit in self.qubit_names],
+                    *[f"{qubit}_roundness" for qubit in self.qubit_names],
                     *[f"{qubit}_resonator_frequency" for qubit in self.qubit_names],
                     "mean_fidelity",
                     "status",
@@ -164,12 +172,17 @@ class ReadoutAmplitudeSweepSaver:
                     )
                     for qubit_name in self.qubit_names
                 ]
+                row_roundnesses = [
+                    self._optional_metric_at(self.roundnesses, qubit_name, index)
+                    for qubit_name in self.qubit_names
+                ]
                 writer.writerow(
                     [
                         float(amplitude),
                         *row_fidelities,
                         *row_errors,
                         *row_separations,
+                        *row_roundnesses,
                         *row_resonator_frequencies,
                         float(np.mean(row_fidelities)),
                         self._measurement_status(float(amplitude)),
@@ -209,8 +222,8 @@ class ReadoutAmplitudeSweepSaver:
             "",
             "## Per-Qubit Best Results",
             "",
-            "| Qubit | Initial amplitude | Best amplitude | Best fidelity | Final fidelity |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| Qubit | Readout frequency (GHz) | Initial amplitude | Best amplitude | Best fidelity | Final fidelity |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
         if summary.get("interrupt_reason"):
             lines.insert(5, f"Interrupt reason: {summary['interrupt_reason']}")
@@ -219,6 +232,7 @@ class ReadoutAmplitudeSweepSaver:
             lines.append(
                 "| "
                 f"{qubit_name} | "
+                f"{self._frequency_ghz(qubit_name)} | "
                 f"{qubit_summary['initial_amplitude']} | "
                 f"{qubit_summary['best_amplitude']} | "
                 f"{qubit_summary['best_fidelity']} | "
@@ -274,10 +288,15 @@ class ReadoutAmplitudeSweepSaver:
             plotter.reset_label = self.reset_label
             plotter.fidelity_errors = self.fidelity_errors
             plotter.separations = self.separations
+            plotter.roundnesses = self.roundnesses
             figure = plotter.plot()
 
         fig = figure
         fig.savefig(path, dpi=200, bbox_inches="tight")
+
+    def _frequency_ghz(self, qubit_name: str) -> str:
+        frequency = self.readout_frequencies.get(qubit_name)
+        return "not available" if frequency is None else f"{frequency / 1e9:.6f}"
 
     def _save_iq_blob_figures(self, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)

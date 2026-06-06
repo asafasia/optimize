@@ -171,9 +171,9 @@ data/readout_optimize/
 Files:
 
 - `data.npz`: raw workflow results and measured arrays
-- `fidelities.csv`: amplitude, fidelity, error, separation, and mean fidelity
+- `fidelities.csv`: amplitude, fidelity, error, separation, roundness, resonator frequency, and mean fidelity
 - `summary.json`: machine-readable analysis summary
-- `report.md`: human-readable report
+- `report.md`: human-readable report including each qubit's readout frequency
 - `live_readout_optimizer.html`: live/final browser view of the run
 - `plot.png`: main optimizer plot
 - `profile.json`: copied or best-effort serialized profile snapshot
