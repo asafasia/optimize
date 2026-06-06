@@ -33,6 +33,8 @@ class ReadoutZoomInScan:
         ]
         if not initial_amplitudes:
             raise ValueError("Zoom-in scan requires at least one amplitude.")
+        if any(amplitude < 0.0 for amplitude in initial_amplitudes):
+            raise ValueError("Zoom-in scan amplitudes must be greater than or equal to 0.")
 
         iterations = int(self.optimizer.settings.zoom_in_iterations)
         shrink_factor = float(self.optimizer.settings.zoom_in_shrink_factor)
@@ -42,7 +44,7 @@ class ReadoutZoomInScan:
             raise ValueError("zoom_in_shrink_factor must be between 0 and 1.")
 
         point_count = len(initial_amplitudes)
-        original_lower = min(initial_amplitudes)
+        original_lower = max(0.0, min(initial_amplitudes))
         original_upper = max(initial_amplitudes)
         lower_bound = original_lower
         upper_bound = original_upper
@@ -101,7 +103,7 @@ class ReadoutZoomInScan:
             new_lower -= new_upper - original_upper
             new_upper = original_upper
 
-        return max(original_lower, new_lower), min(original_upper, new_upper)
+        return max(0.0, original_lower, new_lower), min(original_upper, new_upper)
 
 
 class ReadoutGradientAscentScan:
