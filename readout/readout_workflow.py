@@ -276,22 +276,35 @@ class ReadoutFidelityWorkflow:
         figures = self._unique_figures(figures)
 
         if not figures:
-            figures = self._plot_handler_for_artifacts(handler)
+            figures = self._plot_handler_for_artifacts(
+                handler,
+                suppress_display=not self.settings.do_plotting,
+            )
 
         if figures:
             handler.workflow_figures = figures
-            for figure in figures:
-                plt.close(figure)
+            if not self.settings.do_plotting:
+                for figure in figures:
+                    plt.close(figure)
 
-    def _plot_handler_for_artifacts(self, handler: ExperimentHandler) -> list[Figure]:
+    def _plot_handler_for_artifacts(
+        self,
+        handler: ExperimentHandler,
+        suppress_display: bool,
+    ) -> list[Figure]:
         existing_figures = set(plt.get_fignums())
-        original_show = plt.show
-        try:
-            plt.show = lambda *args, **kwargs: None
-            with plt.ioff(), self._optional_output_suppression():
+
+        if suppress_display:
+            original_show = plt.show
+            try:
+                plt.show = lambda *args, **kwargs: None
+                with plt.ioff(), self._optional_output_suppression():
+                    plot_result = handler.plot()
+            finally:
+                plt.show = original_show
+        else:
+            with self._optional_output_suppression():
                 plot_result = handler.plot()
-        finally:
-            plt.show = original_show
 
         if isinstance(plot_result, Figure):
             figures = [plot_result]
@@ -506,7 +519,7 @@ class ReadoutFidelityWorkflow:
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
-                mid_point=None, interval=15e6, num_points=120)],
+                mid_point=None, interval=150e6, num_points=120)],
             long_drive_pulse=False,
             qubit_names=[self.qubit_names[0]],
             settings=settings,
@@ -568,28 +581,25 @@ if __name__ == "__main__":
     profile = load_profile()
 
     task_manager = load_task_manager()
-    
+
     qubit = profile.qubits[qubit_names[0]]
 
     readout_pulse = qubit.pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
-
-    readout_pulse.readout_amplitude = 0.1
-    qubit.readout_resonator_frequency.value = 5.14e9
-    
+    readout_pulse.readout_amplitude = 0.02
+    readout_pulse.readout_duration = 1e-6
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=False,
+        run_resonator=True,
         run_kernels=True,
         run_iq_blobs=True,
-        show_handler_output=False,
+        show_handler_output=True,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
-        do_plotting=False,
-
+        do_plotting=True,
     )
 
     workflow = ReadoutFidelityWorkflow(
@@ -601,16 +611,22 @@ if __name__ == "__main__":
 
     workflow.run()
 
-    
+    # figures_dir = Path("data") / "readout_workflow_example_figures"
+    # figures_dir.mkdir(parents=True, exist_ok=True)
 
-    handlers = {
-        "resonator": workflow.resonator_handler,
-        "kernels": workflow.kernel_handler,
-        "iq_blobs": workflow.iq_blobs_handler,
-    }
-    
-    for name, handler in handlers.items():
-        if handler is not None:
-            print(f"\n{name} results:")
-            print(handler.figsures if hasattr(handler, "figures") else "No figures")
-            print(handler.data if hasattr(handler, "data") else "No data")
+    # handlers = {
+    #     "resonator": workflow.resonator_handler,
+    #     "kernels": workflow.kernel_handler,
+    #     "iq_blobs": workflow.iq_blobs_handler,
+    # }
+
+    # for handler_name, handler in handlers.items():
+    #     if handler is None:
+    #         continue
+
+    #     figures = getattr(handler, "workflow_figures", [])
+    #     print(f"{handler_name}: {len(figures)} figures")
+    #     for figure_index, figure in enumerate(figures, start=1):
+    #         path = figures_dir / f"{handler_name}_{figure_index:02d}.png"
+    #         figure.savefig(path, dpi=200, bbox_inches="tight")
+    #         print(f"saved {path}")

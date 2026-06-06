@@ -609,7 +609,7 @@ if __name__ == "__main__":
     )
 
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.05, 0.1, 13),
+        amplitudes=np.linspace(0.001, 0.02, 30),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.SWEEP,
 
