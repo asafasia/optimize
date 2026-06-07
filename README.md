@@ -128,6 +128,7 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     show_handler_output=False,
     report_timing=True,
     task_status_poll_interval=10.0,
+    states=["g", "e", "f"],
     reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 )
 
@@ -149,6 +150,9 @@ optimizer.run()
 fig = optimizer.plot()
 run_dir = optimizer.save_results(figure=fig)
 ```
+
+Kernel traces run as one experiment with one compiled experiment and one result.
+Supported kernel state lists are `["g", "e"]` and `["g", "e", "f"]`.
 
 The experimental live HTML monitor opens by default while the optimizer runs.
 Set `use_live_html_plotter=False` to disable it. The monitor writes files under

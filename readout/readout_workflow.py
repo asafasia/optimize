@@ -48,6 +48,7 @@ class ReadoutFidelityWorkflowSettings:
     report_timing: bool = True
     task_status_poll_interval: float = 10.0
     reset: ResetSettings = field(default_factory=ResetSettings)
+    states: list[str] = field(default_factory=lambda: ["g", "e", "f"])
 
 
 class ReadoutFidelityWorkflow:
@@ -123,6 +124,7 @@ class ReadoutFidelityWorkflow:
         return handler.data
 
     def run_kernel_node(self) -> Any:
+        self._validate_kernel_states()
         handler = self._build_kernel_handler()
         self.kernel_handler = handler
 
@@ -130,10 +132,17 @@ class ReadoutFidelityWorkflow:
             self._run_handler_locally(handler)
         else:
             with self._optional_output_suppression():
-                result_0, result_1 = self._submit_kernel_handler(handler)
-            self._load_kernel_handler_result(handler, result_0, result_1)
+                result = self._submit_handler(handler)
+            self._load_handler_result(handler, result)
 
         return handler.data
+
+    def _validate_kernel_states(self) -> None:
+        if self.settings.states not in (["g", "e"], ["g", "e", "f"]):
+            raise ValueError(
+                "Kernel traces calculation states must be ['g', 'e'] "
+                "or ['g', 'e', 'f']."
+            )
 
     def run_iq_blobs_node(self) -> Any:
         handler = self._build_iq_blobs_handler()
@@ -160,6 +169,7 @@ class ReadoutFidelityWorkflow:
 
     def _submit_handler(self, handler: ExperimentHandler) -> Any:
         compiled_experiment = handler.get_compiled_experiment()
+        handler.compiled_experiment = compiled_experiment
 
         return self._submit_compiled_experiment(handler, compiled_experiment)
 
@@ -182,59 +192,6 @@ class ReadoutFidelityWorkflow:
         )
         return self._wait_for_task(task, label)
 
-    def _submit_kernel_handler(self, handler: KernelTracesCalculationHandler) -> Any:
-        handler.define_experiment()
-
-        compiled_experiment_0 = self._compile_kernel_experiment(
-            handler,
-            handler.experiment_0,
-        )
-        compiled_experiment_1 = self._compile_kernel_experiment(
-            handler,
-            handler.experiment_1,
-        )
-
-        handler.experiment_0_result = self._submit_compiled_experiment(
-            handler,
-            compiled_experiment_0,
-        )
-        handler.experiment_1_result = self._submit_compiled_experiment(
-            handler,
-            compiled_experiment_1,
-        )
-
-        return handler.experiment_0_result, handler.experiment_1_result
-
-    def _compile_kernel_experiment(
-        self,
-        handler: KernelTracesCalculationHandler,
-        experiment: Any,
-    ) -> Any:
-        original_experiment = getattr(handler, "experiment", None)
-        had_experiment = hasattr(handler, "experiment")
-        original_compiled_experiment = getattr(
-            handler, "compiled_experiment", None)
-        had_compiled_experiment = hasattr(handler, "compiled_experiment")
-
-        handler.experiment = experiment
-        if had_compiled_experiment:
-            delattr(handler, "compiled_experiment")
-
-        try:
-            compiled_experiment = handler.execution_core.get_compiled_experiment(
-                experiment
-            )
-            handler.compiled_experiment = compiled_experiment
-            return compiled_experiment
-        finally:
-            if had_experiment:
-                handler.experiment = original_experiment
-            else:
-                delattr(handler, "experiment")
-
-            if had_compiled_experiment:
-                handler.compiled_experiment = original_compiled_experiment
-
     def _load_handler_result(self, handler: ExperimentHandler, result: Any) -> None:
         """Convert task-manager result into the handler's normal data format.
 
@@ -242,19 +199,6 @@ class ReadoutFidelityWorkflow:
         """
         with self._optional_output_suppression():
             handler.load_result(result)
-        self._analyze_handler_result(handler)
-
-    def _load_kernel_handler_result(
-        self,
-        handler: KernelTracesCalculationHandler,
-        result_0: Any,
-        result_1: Any,
-    ) -> None:
-        with self._optional_output_suppression():
-            if hasattr(handler, "load_results"):
-                handler.load_results(result_0, result_1)
-            else:
-                handler.load_result((result_0, result_1))
         self._analyze_handler_result(handler)
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
@@ -513,9 +457,9 @@ class ReadoutFidelityWorkflow:
             exportation_method=ExportationMethod.NONE,
             acquisition_type=AcquisitionType.SPECTROSCOPY,
             update_params_method=UpdateParamsMethod.NONE,
-            configure_logging=self.settings.show_handler_output,
+            # configure_logging=self.settings.show_handler_output,
             do_emulation=True,
-            do_plotting=self.settings.do_plotting,
+            # do_plotting=self.settings.do_plotting,
         )
         handler = ResonatorSpectroscopyHandler(
             x_resonator_frequency_arrays=[MidIntervalArray(
@@ -525,6 +469,7 @@ class ReadoutFidelityWorkflow:
             settings=settings,
             profile=self.profile,
             session=self.session,
+            states=self.settings.states,
         )
 
         return handler
@@ -537,15 +482,17 @@ class ReadoutFidelityWorkflow:
             update_params_method=UpdateParamsMethod.UPDATE,
             acquisition_type=AcquisitionType.RAW,
             averaging_mode=AveragingMode.CYCLIC,
-            configure_logging=self.settings.show_handler_output,
+            # configure_logging=self.settings.show_handler_output,
             do_emulation=True,
-            do_plotting=self.settings.do_plotting,
+            # do_plotting=self.settings.do_plotting,
+
         )
         handler = KernelTracesCalculationHandler(
             qubit_names=[self.qubit_names[0]],
             settings=settings,
             profile=self.profile,
             session=self.session,
+            states=self.settings.states,
         )
 
         return handler
@@ -557,11 +504,12 @@ class ReadoutFidelityWorkflow:
             averaging_mode=AveragingMode.SINGLE_SHOT,
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
-            configure_logging=self.settings.show_handler_output,
+            # configure_logging=self.settings.show_handler_output,
             reset=self.settings.reset,
             do_emulation=True,
-            do_plotting=self.settings.do_plotting,
+            # do_plotting=self.settings.do_plotting,
             iq_plane_analysis='kde',
+
         )
 
         handler = IQBlobsHandler(
@@ -569,6 +517,7 @@ class ReadoutFidelityWorkflow:
             settings=settings,
             profile=self.profile,
             session=self.session,
+            states=self.settings.states,
         )
 
         return handler
@@ -576,9 +525,13 @@ class ReadoutFidelityWorkflow:
 
 if __name__ == "__main__":
 
-    qubit_names = ["q6"]
+    qubit_names = ["q3"]
 
-    profile = load_profile()
+    # profile = load_profile()
+    
+    profile = Profile.default()
+
+    profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
 
     task_manager = load_task_manager()
 
@@ -586,9 +539,6 @@ if __name__ == "__main__":
 
     readout_pulse = qubit.pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
-
-    readout_pulse.readout_amplitude = 0.02
-    readout_pulse.readout_duration = 1e-6
 
     # %%
     settings = ReadoutFidelityWorkflowSettings(
@@ -598,8 +548,9 @@ if __name__ == "__main__":
         run_kernels=True,
         run_iq_blobs=True,
         show_handler_output=True,
-        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+        reset=ResetSettings(ResetType.PASSIVE, reset_num=5),
         do_plotting=True,
+        states=["g", "e"],
     )
 
     workflow = ReadoutFidelityWorkflow(
