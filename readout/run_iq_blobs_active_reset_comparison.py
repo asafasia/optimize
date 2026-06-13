@@ -164,7 +164,7 @@ class ActiveResetIQBlobsComparison:
             profile_name=self.settings.profile_name,
             do_emulation=self.settings.do_emulation,
             run_resonator=False,
-            run_kernels=False,
+            run_kernels=True,
             run_iq_blobs=True,
             do_plotting=False,
             show_handler_output=self.settings.show_handler_output,
@@ -602,17 +602,19 @@ if __name__ == "__main__":
     args = parse_args()
     
     profile = load_profile()
+    profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
     
     
     # prepare qubit list and exclude q20
     qubits = [q for q in profile.qubits.keys() if q != "q20"]
     
     
+    qubits = ['q1','q3','q4']
     settings = ActiveResetIQBlobsComparisonSettings(
         qubit_names=qubits,
         profile_name=args.profile_name,
         output_root=args.output_root,
-        active_reset_num=args.active_reset_num,
+        active_reset_num=5,
         do_emulation=args.do_emulation,
         show_handler_output=args.show_handler_output,
         task_status_poll_interval=args.task_status_poll_interval,

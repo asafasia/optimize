@@ -220,22 +220,18 @@ raise the interrupt normally.
 
 ## Failed Measurements
 
-By default, a failed amplitude measurement does not abort the whole optimization:
-
-```python
-continue_on_measurement_error=True
-failed_measurement_fidelity=0.5
-```
-
-If one amplitude fails, the optimizer records the error, assigns fidelity `0.5`
-for that point, and continues to the next amplitude or scan step. Failed points
-are marked in `fidelities.csv`, `summary.json`, `report.md`, and `data.npz`.
-
-Set this to raise immediately instead:
+By default, a failed amplitude measurement aborts the optimization and exposes the original traceback:
 
 ```python
 continue_on_measurement_error=False
+failed_measurement_fidelity=0.5
 ```
+
+Set `continue_on_measurement_error=True` to record the error, assign fidelity `0.5`
+for that point, and continue to the next amplitude or scan step. Failed points
+are marked in `fidelities.csv`, `summary.json`, `report.md`, and `data.npz`.
+
+This continuation mode is useful for unattended scans, but it can hide systematic configuration failures.
 
 ## Important Modules
 

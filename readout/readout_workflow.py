@@ -527,8 +527,8 @@ if __name__ == "__main__":
 
     qubit_names = ["q3"]
 
-    # profile = load_profile()
-    
+    load_profile()
+
     profile = Profile.default()
 
     profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
@@ -548,20 +548,25 @@ if __name__ == "__main__":
         run_kernels=True,
         run_iq_blobs=True,
         show_handler_output=True,
-        reset=ResetSettings(ResetType.PASSIVE, reset_num=5),
+        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
         do_plotting=True,
         states=["g", "e"],
     )
 
+
+    # for q in qubits:
     workflow = ReadoutFidelityWorkflow(
-        qubit_names=qubit_names,
+        qubit_names=['q3'],
         profile=profile,
         task_manager=task_manager,
         settings=settings,
     )
+    
+    
 
     workflow.run()
 
+    
     # figures_dir = Path("data") / "readout_workflow_example_figures"
     # figures_dir.mkdir(parents=True, exist_ok=True)
 
@@ -581,3 +586,5 @@ if __name__ == "__main__":
     #         path = figures_dir / f"{handler_name}_{figure_index:02d}.png"
     #         figure.savefig(path, dpi=200, bbox_inches="tight")
     #         print(f"saved {path}")
+
+# %%

@@ -39,7 +39,7 @@ class ReadoutAmplitudeSweepSettings:
     golden_section_interval_tolerance: float = 0.001
     fill_unfinished_on_interrupt: bool = True
     unfinished_fidelity: float = 0.5
-    continue_on_measurement_error: bool = True
+    continue_on_measurement_error: bool = False
     failed_measurement_fidelity: float = 0.5
     profile_path: str | Path | None = None
     show_progress: bool = True
@@ -99,6 +99,7 @@ class ReadoutAmplitudeSweepWorkflow:
         self.run_dir: Path | None = None
 
     def run(self) -> dict[float, dict[str, Any]]:
+        self._prepare_profile_for_states()
         self.workflows = {}
         self.results = {}
         self.measured_amplitudes = []
@@ -135,6 +136,13 @@ class ReadoutAmplitudeSweepWorkflow:
 
         self._finish_progress(len(self.measured_amplitudes))
         return self.results
+
+    def _prepare_profile_for_states(self) -> None:
+        if "f" not in self.settings.workflow_settings.states:
+            return
+
+        for qubit_name in self.qubit_names:
+            self.profile.ensure_pi_ef_pulse(qubit_name, overwrite=False)
 
     def plot(self) -> Figure:
         if not self.measured_amplitudes:
@@ -655,7 +663,7 @@ if __name__ == "__main__":
     )
     
     optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.02, 4),
+        amplitudes=np.linspace(0.001, 0.11, 4),
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod.ZOOM_IN,
         zoom_in_iterations=4
@@ -664,7 +672,9 @@ if __name__ == "__main__":
     qubits = sorted([q for q in profile.qubits.keys()],
                     key=lambda q: int(q[1:]))
 
-    qubits = ['q6']
+    # qubits = ['q6']
+    
+    
 
     for qubit_name in qubits:
 
@@ -681,3 +691,5 @@ if __name__ == "__main__":
         plt.show()
 
 # %%
+
+    
