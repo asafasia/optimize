@@ -48,7 +48,7 @@ class ReadoutFidelityWorkflowSettings:
     report_timing: bool = True
     task_status_poll_interval: float = 10.0
     reset: ResetSettings = field(default_factory=ResetSettings)
-    states: list[str] = field(default_factory=lambda: ["g", "e", "f"])
+    states: list[str] = field(default_factory=lambda: ["g", "e"])
 
 
 class ReadoutFidelityWorkflow:

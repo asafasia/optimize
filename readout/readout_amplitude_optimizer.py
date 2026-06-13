@@ -649,7 +649,7 @@ if __name__ == "__main__":
 
     profile = load_profile()    # 
 
-    profile.ensure_pi_ef_pulse_for_all_qubits
+    profile.ensure_pi_ef_pulse_for_all_qubits()
     
     task_manager = load_task_manager()
 

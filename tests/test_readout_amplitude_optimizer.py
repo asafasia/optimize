@@ -82,22 +82,34 @@ def test_settings_fail_fast_on_measurement_errors_by_default():
     assert settings.continue_on_measurement_error is False
 
 
-def test_prepare_profile_adds_pi_ef_for_selected_qubits_only():
+def test_workflow_and_optimizer_default_to_two_states():
+    workflow_settings = ReadoutFidelityWorkflowSettings()
+    optimizer_settings = ReadoutAmplitudeSweepSettings(amplitudes=[0.01])
+
+    assert workflow_settings.states == ["g", "e"]
+    assert optimizer_settings.workflow_settings.states == ["g", "e"]
+
+
+def test_prepare_profile_skips_pi_ef_for_default_two_state_workflow():
     profile = FakeProfile(("q1", "q2"))
     optimizer = make_optimizer(profile=profile, qubit_names=("q2",))
 
     optimizer._prepare_profile_for_states()
 
-    assert profile.ensure_pi_ef_calls == [("q2", False)]
+    assert profile.ensure_pi_ef_calls == []
 
 
-def test_prepare_profile_skips_pi_ef_for_two_state_workflow():
-    profile = FakeProfile(("q1",))
-    optimizer = make_optimizer(profile=profile, states=["g", "e"])
+def test_prepare_profile_adds_pi_ef_for_explicit_three_state_workflow():
+    profile = FakeProfile(("q1", "q2"))
+    optimizer = make_optimizer(
+        profile=profile,
+        qubit_names=("q2",),
+        states=["g", "e", "f"],
+    )
 
     optimizer._prepare_profile_for_states()
 
-    assert profile.ensure_pi_ef_calls == []
+    assert profile.ensure_pi_ef_calls == [("q2", False)]
 
 
 def test_sweep_runs_workflow_and_records_metrics(monkeypatch):
