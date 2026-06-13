@@ -46,7 +46,7 @@ class ReadoutAmplitudeSweepSettings:
     use_live_html_plotter: bool = True
     live_html_output_dir: str | Path = Path("data") / "readout_optimize"
     live_html_refresh_seconds: float = 1.0
-    live_html_open_browser: bool = True
+    live_html_open_browser: bool = False
     workflow_settings: ReadoutFidelityWorkflowSettings = field(
         default_factory=ReadoutFidelityWorkflowSettings
     )
@@ -648,6 +648,8 @@ if __name__ == "__main__":
     from resources.load_profile import load_profile
 
     profile = load_profile()    # 
+
+    profile.ensure_pi_ef_pulse_for_all_qubits
     
     task_manager = load_task_manager()
 
@@ -692,4 +694,3 @@ if __name__ == "__main__":
 
 # %%
 
-    

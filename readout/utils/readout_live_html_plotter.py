@@ -22,7 +22,7 @@ class ReadoutLiveHtmlPlotter:
         self,
         output_dir: str | Path,
         refresh_interval_seconds: float = 1.0,
-        open_browser: bool = True,
+        open_browser: bool = False,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.refresh_interval_seconds = float(refresh_interval_seconds)
@@ -348,6 +348,8 @@ class ReadoutLiveHtmlPlotter:
             return
 
         for index, item in enumerate(self._iq_history, start=1):
+            if item["fidelity_src"]:
+                continue
             path = self.fidelity_history_dir / f"fidelity_{index:04d}.png"
             self._save_fidelity_plot(
                 qubit_names=qubit_names,
@@ -365,6 +367,8 @@ class ReadoutLiveHtmlPlotter:
             item["fidelity_src"] = path.relative_to(self.output_dir).as_posix()
 
         for index, item in enumerate(self._kernel_history, start=1):
+            if item["fidelity_src"]:
+                continue
             path = self.fidelity_history_dir / f"kernel_fidelity_{index:04d}.png"
             self._save_fidelity_plot(
                 qubit_names=qubit_names,
@@ -382,6 +386,8 @@ class ReadoutLiveHtmlPlotter:
             item["fidelity_src"] = path.relative_to(self.output_dir).as_posix()
 
         for index, item in enumerate(self._resonator_history, start=1):
+            if item["fidelity_src"]:
+                continue
             path = self.fidelity_history_dir / f"resonator_fidelity_{index:04d}.png"
             self._save_fidelity_plot(
                 qubit_names=qubit_names,
