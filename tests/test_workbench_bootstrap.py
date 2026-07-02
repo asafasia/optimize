@@ -45,10 +45,13 @@ def test_setup_workbench_environment_uses_writable_qratena_data_root(monkeypatch
     workbench_data = tmp_path / "data"
     package_data = tmp_path / "package-data"
     package_devices = package_data / "devices"
+    kernel_traces = tmp_path / "kernel-traces"
     package_devices.mkdir(parents=True)
+    kernel_traces.mkdir()
 
     monkeypatch.setattr(workbench_bootstrap, "WORKBENCH_QRATENA_DATA_ROOT", workbench_data)
     monkeypatch.setattr(workbench_bootstrap, "QRATENA_DATA_ROOT", package_data)
+    monkeypatch.setattr(workbench_bootstrap, "WORKBENCH_KERNEL_TRACES_ROOT", kernel_traces)
     monkeypatch.delenv("QRATENA_DATA_DIR", raising=False)
 
     workbench_bootstrap.setup_workbench_environment()
@@ -56,6 +59,8 @@ def test_setup_workbench_environment_uses_writable_qratena_data_root(monkeypatch
     assert os_environ("QRATENA_DATA_DIR") == str(workbench_data)
     assert (workbench_data / "devices").is_symlink()
     assert (workbench_data / "devices").resolve() == package_devices
+    assert (workbench_data / "qratena_kernel_traces").is_symlink()
+    assert (workbench_data / "qratena_kernel_traces").resolve() == kernel_traces
 
 
 def os_environ(name: str) -> str:

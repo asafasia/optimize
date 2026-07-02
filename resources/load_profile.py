@@ -58,25 +58,38 @@ def load_profile(branch: str = "main") -> "Profile":
 
 
 def load_task_manager() -> "TaskSubmitterAsync":
-    api_uri = os.environ.get("QTASKBOARD_API_URI", "http://172.16.0.104:41418")
-    redis_uri = os.environ.get("QTASKBOARD_REDIS_URI", "redis://172.16.0.104:6379")
-    try:
-        username = required_env("QTASKBOARD_USERNAME")
-        password = required_env("QTASKBOARD_PASSWORD")
-    except RuntimeError as exc:
+    api_uri = os.environ.get("QTASKBOARD_API_URI") or os.environ.get(
+        "QIGEON_API_URI", "http://172.16.0.104:41418"
+    )
+    redis_uri = os.environ.get("QTASKBOARD_REDIS_URI") or os.environ.get(
+        "QIGEON_REDIS_URI", "redis://172.16.0.104:6379"
+    )
+    username = env_any("QTASKBOARD_USERNAME", "QIGEON_USERNAME")
+    password = env_any("QTASKBOARD_PASSWORD", "QIGEON_PASSWORD")
+    token = env_any("QTASKBOARD_TOKEN", "QIGEON_TOKEN")
+
+    if not token and not (username and password):
         raise RuntimeError(
-            "Taskboard credentials are required for hardware runs. "
-            "Set QTASKBOARD_USERNAME and QTASKBOARD_PASSWORD in the environment "
-            "or in workbench/.env, or rerun with --do-emulation."
-        ) from exc
+            "Missing qigeon taskboard credentials. Set QTASKBOARD_TOKEN, "
+            "or set both QTASKBOARD_USERNAME and QTASKBOARD_PASSWORD in the "
+            "environment or workbench .env before running hardware tasks. "
+            "Use --do-emulation to run without submitting to the taskboard."
+        )
 
     from qigeon.io.task_submitter import TaskSubmitterAsync
 
+    config = {
+        "api_uri": api_uri,
+        "redis_uri": redis_uri,
+    }
+    if token:
+        config["token"] = token
+    elif username and password:
+        config["username"] = username
+        config["password"] = password
+
     return TaskSubmitterAsync(
-        api_uri=api_uri,
-        redis_uri=redis_uri,
-        username=username,
-        password=password,
+        **config,
     )
 
 
@@ -100,9 +113,9 @@ def push_profile(profile: "Profile", branch: str = "main_asaf") -> None:
 
 
 if __name__ == "__main__":
-    profile = load_profile("main")
+    profile = load_profile("main_asaf")
     print(f"Loaded profile with {len(profile.qubits)} qubits.")
     
     
     
-    print(profile.qubits['q2'].pulses['readout']['const'].readout_duration)
+    print(profile.qubits['q3'].pulses['readout']['const'].readout_duration)

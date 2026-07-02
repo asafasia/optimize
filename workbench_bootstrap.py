@@ -17,6 +17,7 @@ DEPENDENCY_ROOTS = (
 QRATENA_DATA_ROOT = PROJECT_ROOT / "qratena" / "qratena" / "data"
 WORKBENCH_QRATENA_DATA_ROOT = WORKBENCH_ROOT / "data"
 WORKBENCH_MPLCONFIG_ROOT = WORKBENCH_ROOT / ".cache" / "matplotlib"
+WORKBENCH_KERNEL_TRACES_ROOT = WORKBENCH_ROOT / "outputs" / "qratena" / "qratena_kernel_traces"
 QRATENA_NINJA_PROFILE = Path("devices/ninja_chip/profile.json")
 
 
@@ -60,11 +61,16 @@ def load_workbench_dotenv(path: Path = WORKBENCH_ROOT / ".env") -> None:
 
 def ensure_workbench_qratena_data_root() -> None:
     WORKBENCH_QRATENA_DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    devices_link = WORKBENCH_QRATENA_DATA_ROOT / "devices"
-    package_devices = QRATENA_DATA_ROOT / "devices"
-    if devices_link.exists() or devices_link.is_symlink():
+    link_workbench_data_dir("devices", QRATENA_DATA_ROOT / "devices")
+    link_workbench_data_dir("qratena_kernel_traces", WORKBENCH_KERNEL_TRACES_ROOT)
+
+
+def link_workbench_data_dir(name: str, target: Path) -> None:
+    link = WORKBENCH_QRATENA_DATA_ROOT / name
+    if link.exists() or link.is_symlink():
         return
-    devices_link.symlink_to(package_devices, target_is_directory=True)
+    if target.exists():
+        link.symlink_to(target, target_is_directory=True)
 
 
 def setup_workbench_environment() -> None:
