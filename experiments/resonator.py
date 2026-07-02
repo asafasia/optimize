@@ -3,6 +3,7 @@ from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHand
 from qratena.system.components_params.profile import Profile
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ExportationMethod, UpdateParamsMethod
 from qratena.util.sweeps_utils import MidIntervalArray
+from laboneq.simple import from_json
 
 from workbench.resources.load_profile import load_profile, load_task_manager
 
@@ -42,17 +43,17 @@ handler = ResonatorSpectroscopyHandler(
 compiled_experiment = handler.get_compiled_experiment()
 
 
-task_result = task_manager.wait(
-    task_manager.run_compiled_experiment(
-        experiment_name=handler.experiment_name,
-        profile_name="main",
-        qubit_names=handler.qubit_names,
-        compiled_experiment=compiled_experiment,
-        do_emulation=False
-    ))
+task_id = task_manager.submit_compiled_experiment(
+    experiment_name=handler.experiment_name,
+    profile_name="main",
+    qubit_names=handler.qubit_names,
+    compiled_experiment=compiled_experiment,
+    do_emulation=False,
+)
 
+task_result = task_manager.wait_for_result(task_id)
 
-handler.load_result(task_result)
+handler.experiment_result = from_json(task_result.raw_data)
 # %%
 
 handler.analyze()

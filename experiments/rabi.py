@@ -7,9 +7,9 @@ from unittest import result
 
 from matplotlib import pyplot as plt
 import numpy as np
-from pydantic_core import from_json
 from qigeon import TaskSubmitterAsync
 from qratena.experiments.amplitude_rabi import AmplitudeRabiHandler
+from laboneq.simple import from_json
 from laboneq.dsl.experiment.experiment import Experiment
 from laboneq.dsl.experiment.experiment_signal import ExperimentSignal
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
@@ -72,14 +72,15 @@ for qubit in qubits:
 
     # plot_simulation(compiled_experiment)
 
-    task_result = task_manager.wait(
-        task_manager.run_compiled_experiment(
-            experiment_name=handler.experiment_name,
-            profile_name="main",
-            qubit_names=handler.qubit_names,
-            compiled_experiment=compiled_experiment,
-            do_emulation=False
-        ))
+    task_id = task_manager.submit_compiled_experiment(
+        experiment_name=handler.experiment_name,
+        profile_name="main",
+        qubit_names=handler.qubit_names,
+        compiled_experiment=compiled_experiment,
+        do_emulation=False,
+    )
+
+    task_result = task_manager.wait_for_result(task_id)
 
     handler.experiment_result = from_json(task_result.raw_data)
     # %%

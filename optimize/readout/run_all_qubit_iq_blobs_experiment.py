@@ -12,6 +12,7 @@ if str(WORKBENCH_ROOT) not in sys.path:
 import matplotlib.pyplot as plt
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
+from laboneq.simple import from_json
 from qratena.experiments.iq_blobs import IQBlobsHandler, IQBlobsSettings
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ExportationMethod, ResetType, SUPPORTED_PULSE_SHAPES
@@ -64,15 +65,15 @@ def main() -> None:
     else:
         task_manager = load_task_manager()
         compiled_experiment = handler.get_compiled_experiment()
-        task = task_manager.run_compiled_experiment(
+        task_id = task_manager.submit_compiled_experiment(
             experiment_name=handler.experiment_name,
             profile_name=args.profile_name,
             qubit_names=handler.qubit_names,
             compiled_experiment=compiled_experiment,
             do_emulation=False,
         )
-        task_result = task_manager.wait(task)
-        handler.load_result(task_result)
+        task_result = task_manager.wait_for_result(task_id)
+        handler.experiment_result = from_json(task_result.raw_data)
         handler.analyze()
         handler.update_system_params()
         handler.export_data()

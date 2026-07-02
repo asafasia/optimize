@@ -27,6 +27,7 @@ from qratena.util.sweeps_utils import MidIntervalArray
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
 from laboneq.dsl.session import Session
+from laboneq.simple import from_json
 
 if TYPE_CHECKING:
     from qigeon import TaskSubmitterAsync
@@ -178,7 +179,7 @@ class ReadoutFidelityWorkflow:
     ) -> Any:
         label = handler.experiment_name
         submit_start = perf_counter()
-        task = self.task_manager.run_compiled_experiment(
+        task_id = self.task_manager.submit_compiled_experiment(
             handler.experiment_name,
             self.settings.profile_name,
             handler.qubit_names,
@@ -188,7 +189,7 @@ class ReadoutFidelityWorkflow:
         self._timing_print(
             f"{label} submitted in {self._format_duration(perf_counter() - submit_start)}"
         )
-        return self._wait_for_task(task, label)
+        return self._wait_for_task(task_id, label)
 
     def _load_handler_result(self, handler: ExperimentHandler, result: Any) -> None:
         """Convert task-manager result into the handler's normal data format.
@@ -196,7 +197,7 @@ class ReadoutFidelityWorkflow:
         Implement this once in BaseExperimentHandler if possible.
         """
         with self._optional_output_suppression():
-            handler.load_result(result)
+            handler.experiment_result = from_json(result.raw_data)
         self._analyze_handler_result(handler)
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
@@ -319,23 +320,23 @@ class ReadoutFidelityWorkflow:
             f"{name} finished in {self._format_duration(elapsed)}")
         return result
 
-    def _wait_for_task(self, task: Any, label: str) -> Any:
+    def _wait_for_task(self, task_id: Any, label: str) -> Any:
         wait_start = perf_counter()
-        initial_status = self._task_status(task)
+        initial_status = self._task_status(task_id)
         if initial_status:
             self._timing_print(f"{label} status: {initial_status}")
 
         stop_event = threading.Event()
-        poll_thread = self._start_status_polling(task, label, stop_event)
+        poll_thread = self._start_status_polling(task_id, label, stop_event)
         try:
-            return self.task_manager.wait(task)
+            return self.task_manager.wait_for_result(task_id)
         finally:
             stop_event.set()
             if poll_thread is not None:
                 poll_thread.join(timeout=0.2)
 
             elapsed = perf_counter() - wait_start
-            final_status = self._task_status(task)
+            final_status = self._task_status(task_id)
             status_suffix = f" final status: {final_status}" if final_status else ""
             self._timing_print(
                 f"{label} wait finished in {self._format_duration(elapsed)}"
@@ -344,7 +345,7 @@ class ReadoutFidelityWorkflow:
 
     def _start_status_polling(
         self,
-        task: Any,
+        task_id: Any,
         label: str,
         stop_event: threading.Event,
     ) -> threading.Thread | None:
@@ -353,9 +354,9 @@ class ReadoutFidelityWorkflow:
             return None
 
         def poll_status() -> None:
-            last_status = self._task_status(task)
+            last_status = self._task_status(task_id)
             while not stop_event.wait(interval):
-                status = self._task_status(task)
+                status = self._task_status(task_id)
                 if status and status != last_status:
                     self._timing_print(f"{label} status: {status}")
                     last_status = status
@@ -369,24 +370,24 @@ class ReadoutFidelityWorkflow:
         thread.start()
         return thread
 
-    def _task_status(self, task: Any) -> str | None:
-        for source in (task, self.task_manager):
-            status = self._status_from_source(source, task)
+    def _task_status(self, task_id: Any) -> str | None:
+        for source in (task_id, self.task_manager):
+            status = self._status_from_source(source, task_id)
             if status:
                 return status
         return None
 
-    def _status_from_source(self, source: Any, task: Any) -> str | None:
+    def _status_from_source(self, source: Any, task_id: Any) -> str | None:
         for name in ("status", "state", "task_status", "task_state"):
             value = getattr(source, name, None)
-            status = self._read_status_value(value, task)
+            status = self._read_status_value(value, task_id)
             if status:
                 return status
 
         for name in ("get_status", "get_task_status", "get_task_state"):
             method = getattr(source, name, None)
             if callable(method):
-                for args in ((task,), ()):
+                for args in ((task_id,), ()):
                     try:
                         status = method(*args)
                     except TypeError:

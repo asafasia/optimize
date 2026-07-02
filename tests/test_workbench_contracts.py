@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def python_files() -> list[Path]:
     excluded_parts = {
         ".git",
+        ".venv",
         "__pycache__",
         "outputs",
         "data",

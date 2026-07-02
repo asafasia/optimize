@@ -2,17 +2,6 @@ from .bootstrap import setup_workbench_environment
 
 setup_workbench_environment()
 
-from .resources import (
-    API_URI,
-    BLOB_CONN_STR,
-    BLOB_CONTAINER,
-    DB_NAME,
-    MONGO_URI,
-    PASSWORD,
-    REDIS_URI,
-    USERNAME,
-)
-
 __all__ = [
     "API_URI",
     "BLOB_CONN_STR",
@@ -28,6 +17,17 @@ __all__ = [
     "USERNAME",
 ]
 
+_RESOURCE_NAMES = {
+    "API_URI",
+    "BLOB_CONN_STR",
+    "BLOB_CONTAINER",
+    "DB_NAME",
+    "MONGO_URI",
+    "PASSWORD",
+    "REDIS_URI",
+    "USERNAME",
+}
+
 
 def __getattr__(name: str):
     if name in {"load_profile", "load_task_manager", "push_profile"}:
@@ -38,5 +38,10 @@ def __getattr__(name: str):
             "load_task_manager": load_task_manager,
             "push_profile": push_profile,
         }[name]
+
+    if name in _RESOURCE_NAMES:
+        from . import resources
+
+        return getattr(resources, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
