@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+WORKBENCH_ROOT = Path(__file__).resolve().parents[2]
+if str(WORKBENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKBENCH_ROOT))
 
 import matplotlib.pyplot as plt
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
@@ -16,7 +16,7 @@ from qratena.experiments.iq_blobs import IQBlobsHandler, IQBlobsSettings
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ExportationMethod, ResetType, SUPPORTED_PULSE_SHAPES
 
-from workbench.optimize.readout.run_all_qubit_iq_blobs import (
+from optimize.readout.run_all_qubit_iq_blobs import (
     count_measured,
     extract_fidelity_rows,
     make_run_dir,
@@ -24,7 +24,7 @@ from workbench.optimize.readout.run_all_qubit_iq_blobs import (
     qubit_sort_key,
     save_fidelity_csv,
 )
-from workbench.resources.load_profile import load_profile, load_task_manager
+from resources.load_profile import load_profile, load_task_manager
 
 
 PROFILE_NAME = "main"

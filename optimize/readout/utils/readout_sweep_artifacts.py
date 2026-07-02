@@ -11,8 +11,8 @@ from typing import Any
 from matplotlib.figure import Figure
 import numpy as np
 
-from workbench.optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from workbench.optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
+from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
 
 
 def create_readout_run_dir(

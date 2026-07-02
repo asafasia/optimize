@@ -2,27 +2,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from workbench_bootstrap import setup_workbench_environment
+
+setup_workbench_environment()
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 import numpy as np
-from qigeon.io.task_submitter import TaskSubmitterAsync
 from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ResetType
 
-from workbench.optimize.readout.utils.readout_scan_methods import scan_method_for
-from workbench.optimize.readout.utils.readout_scan_types import ReadoutScanMethod
-from workbench.optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
-from workbench.optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from workbench.optimize.readout.utils.readout_sweep_artifacts import (
+from optimize.readout.utils.readout_scan_methods import scan_method_for
+from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
+from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
+from optimize.readout.utils.readout_sweep_artifacts import (
     ReadoutAmplitudeSweepSaver,
     create_readout_run_dir,
 )
-from workbench.optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
-from workbench.optimize.readout.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
-from workbench.resources.load_profile import load_task_manager
+from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
+
+if TYPE_CHECKING:
+    from qigeon.io.task_submitter import TaskSubmitterAsync
+else:
+    TaskSubmitterAsync = Any
 
 
 @dataclass(slots=True)
@@ -644,49 +651,7 @@ class ReadoutAmplitudeSweepWorkflow:
 
 
 if __name__ == "__main__":
-    from workbench.resources import *
-    from workbench.resources.load_profile import load_profile
-
-    profile = load_profile()
-    profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
-
-    task_manager = load_task_manager()
-
-    workflow_settings = ReadoutFidelityWorkflowSettings(
-        profile_name="main",
-        do_emulation=False,
-        run_resonator=False,
-        run_kernels=True,
-        run_iq_blobs=True,
-        do_plotting=False,
-        show_handler_output=False,
-        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+    raise SystemExit(
+        "This module is library code. Use a runner under optimize/readout/ "
+        "or import ReadoutAmplitudeSweepWorkflow from your experiment script."
     )
-
-    optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.001, 0.11, 4),
-        workflow_settings=workflow_settings,
-        method=ReadoutScanMethod.ZOOM_IN,
-        zoom_in_iterations=4
-
-    )
-    qubits = sorted([q for q in profile.qubits.keys()],
-                    key=lambda q: int(q[1:]))
-
-    # qubits = ['q6']
-
-    for qubit_name in qubits:
-
-        optimizer = ReadoutAmplitudeSweepWorkflow(
-            qubit_names=[qubit_name],
-            profile=profile,
-            task_manager=task_manager,
-            settings=optimizer_settings,
-        )
-
-        optimizer.run()
-        fig = optimizer.plot()
-        optimizer.save_results(figure=fig)
-        plt.show()
-
-# %%

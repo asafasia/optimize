@@ -7,20 +7,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+WORKBENCH_ROOT = Path(__file__).resolve().parents[2]
+if str(WORKBENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKBENCH_ROOT))
 
 import matplotlib.pyplot as plt
 import numpy as np
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType
 
-from workbench.optimize.readout.readout_workflow import (
+from optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
     ReadoutFidelityWorkflowSettings,
 )
-from workbench.resources.load_profile import load_profile, load_task_manager
+from resources.load_profile import load_profile, load_task_manager
 
 
 PROFILE_NAME = "main"

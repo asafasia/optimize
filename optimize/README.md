@@ -23,18 +23,19 @@ python readout/run_all_qubits_report.py --qubits q5 q6 q9
 Use `--skip-passive-comparison`, `--skip-resonator`, or `--skip-kernels` for a
 shorter run. Results are written under `data/readout_all_qubits_report`.
 
-## IQ Blob Fidelity Histogram
+## Multiplexed IQ Blob Fidelity Comparison
 
-`readout/measure_all_qubit_iq_blob_fidelities.py` runs only the IQ blobs step
-for selected qubits, extracts the readout fidelity from each qubit's IQ blobs
-analysis, and saves a CSV, summary JSON, and bar-plus-histogram plot.
+`readout/measure_all_qubit_multiplexed_iq_blob_fidelities.py` runs the
+multiplexed IQ blobs experiment twice for selected qubits: once without active
+reset and once with active reset. It extracts each qubit's readout fidelity and
+saves raw CSV, comparison CSV, summary JSON, and a per-qubit comparison plot.
 
 ```bash
-python readout/measure_all_qubit_iq_blob_fidelities.py --qubits q5 q6 q9
+python readout/measure_all_qubit_multiplexed_iq_blob_fidelities.py --qubits q5 q6 q9
 ```
 
-By default it measures every qubit in the selected profile using active reset
-and writes timestamped results under `outputs/readout_iq_blob_fidelities`.
+By default it measures every qubit in the selected profile and writes
+timestamped results under `outputs/readout_multiplexed_iq_blob_fidelities`.
 
 This optimizer expects the Qratena repository to be on:
 
