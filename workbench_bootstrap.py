@@ -85,6 +85,17 @@ def setup_workbench_environment() -> None:
 
     if os.environ.get("QRATENA_DATA_DIR") is None:
         os.environ["QRATENA_DATA_DIR"] = str(WORKBENCH_QRATENA_DATA_ROOT)
+    configure_qratena_data_root()
     if os.environ.get("MPLCONFIGDIR") is None:
         WORKBENCH_MPLCONFIG_ROOT.mkdir(parents=True, exist_ok=True)
         os.environ["MPLCONFIGDIR"] = str(WORKBENCH_MPLCONFIG_ROOT)
+
+
+def configure_qratena_data_root() -> None:
+    """Apply the workbench data root to qratena even if it was imported first."""
+    try:
+        from qratena.util import settings
+    except ModuleNotFoundError:
+        return
+
+    settings.configure(data_dir=Path(os.environ["QRATENA_DATA_DIR"]))

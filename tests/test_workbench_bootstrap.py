@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 
 import workbench_bootstrap
-from workbench_bootstrap import load_workbench_dotenv
+from workbench_bootstrap import configure_qratena_data_root, load_workbench_dotenv
 
 
 def test_load_workbench_dotenv_sets_missing_values(monkeypatch, tmp_path: Path):
@@ -61,6 +63,24 @@ def test_setup_workbench_environment_uses_writable_qratena_data_root(monkeypatch
     assert (workbench_data / "devices").resolve() == package_devices
     assert (workbench_data / "qratena_kernel_traces").is_symlink()
     assert (workbench_data / "qratena_kernel_traces").resolve() == kernel_traces
+
+
+def test_configure_qratena_data_root_updates_imported_settings(monkeypatch, tmp_path: Path):
+    configured_paths = []
+
+    fake_settings = types.SimpleNamespace(configure=lambda data_dir: configured_paths.append(data_dir))
+    fake_qratena = types.ModuleType("qratena")
+    fake_util = types.ModuleType("qratena.util")
+    fake_util.settings = fake_settings
+
+    monkeypatch.setitem(sys.modules, "qratena", fake_qratena)
+    monkeypatch.setitem(sys.modules, "qratena.util", fake_util)
+    monkeypatch.setitem(sys.modules, "qratena.util.settings", fake_settings)
+    monkeypatch.setenv("QRATENA_DATA_DIR", str(tmp_path))
+
+    configure_qratena_data_root()
+
+    assert configured_paths == [tmp_path]
 
 
 def os_environ(name: str) -> str:

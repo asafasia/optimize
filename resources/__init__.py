@@ -1,4 +1,5 @@
 from .bootstrap import setup_workbench_environment
+from .load_profile import load_profile, load_task_manager, push_profile
 
 setup_workbench_environment()
 
@@ -30,15 +31,6 @@ _RESOURCE_NAMES = {
 
 
 def __getattr__(name: str):
-    if name in {"load_profile", "load_task_manager", "push_profile"}:
-        from .load_profile import load_profile, load_task_manager, push_profile
-
-        return {
-            "load_profile": load_profile,
-            "load_task_manager": load_task_manager,
-            "push_profile": push_profile,
-        }[name]
-
     if name in _RESOURCE_NAMES:
         from . import resources
 

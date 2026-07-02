@@ -27,9 +27,9 @@ from laboneq.simple import from_json
 from resources import load_profile, load_task_manager
 
 
-profile = load_profile('main_asaf')
+profile = load_profile('main')
 
-# profile = Profile.default()
+profile = Profile.default()
 
 task_manager = load_task_manager()
 profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
@@ -39,7 +39,7 @@ profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
 # --- Compiled Experiment ---
 
 reset = ResetSettings(
-    ResetType.ACTIVE,
+    reset_type=ResetType.ACTIVE,
     reset_num=5,
 )
 
@@ -55,12 +55,10 @@ settings = ExperimentSettings(
 
 qubits = sorted(list(profile.qubits.keys()), key=lambda q: int(q[1:]))
 
-qubits = ["q8"]
+qubits = ["q7"]
 handler = IQBlobsHandler(
     qubit_names=qubits,
     settings=settings,
-    states=["g", "e"],
-    profile=profile
     # or ["g", "e", "f"] depending on the system and goals
 )
 

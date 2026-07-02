@@ -11,6 +11,13 @@ import pytest
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "resources" / "resources.py"
 
 
+@pytest.fixture(autouse=True)
+def skip_workbench_dotenv(monkeypatch):
+    import workbench_bootstrap
+
+    monkeypatch.setattr(workbench_bootstrap, "load_workbench_dotenv", lambda path=None: None)
+
+
 def load_config_module():
     spec = importlib.util.spec_from_file_location("workbench_resources_config", CONFIG_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -63,6 +70,25 @@ def test_resources_package_import_does_not_require_taskboard_credentials(monkeyp
     resources = __import__("resources")
 
     assert hasattr(resources, "setup_workbench_environment")
+
+
+def test_resources_package_exports_loader_functions(monkeypatch):
+    for name in (
+        "QTASKBOARD_USERNAME",
+        "QTASKBOARD_PASSWORD",
+        "QARAKAL_MONGO_URI",
+        "QARAKAL_BLOB_CONN_STR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    sys.modules.pop("resources", None)
+    sys.modules.pop("resources.load_profile", None)
+
+    from resources import load_profile, load_task_manager, push_profile
+
+    assert callable(load_profile)
+    assert callable(load_task_manager)
+    assert callable(push_profile)
 
 
 def test_load_profile_module_import_does_not_require_taskboard_credentials(monkeypatch):

@@ -22,7 +22,7 @@ from workbench_bootstrap import (
 setup_workbench_environment()
 
 
-PROFILE_NAME = "main_asaf"
+PROFILE_NAME = "main"
 OUTPUT_ROOT = Path("outputs/readout_multiplexed_iq_blob_fidelities")
 ACTIVE_RESET_NUM = 5
 STATES = ["g", "e"]
