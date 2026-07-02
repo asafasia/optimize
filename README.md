@@ -3,6 +3,26 @@
 Tools for optimizing qubit readout amplitude using Qratena/Qigeon experiment
 workflows.
 
+## All-Qubit HTML Report
+
+`readout/run_all_qubits_report.py` is the class-based replacement for the
+ad-hoc `run_all_qubits.py` script. It runs resonator spectroscopy, kernel
+calculation, and IQ blobs for each selected qubit, followed by a passive-reset
+IQ comparison. It saves a standalone HTML dashboard containing:
+
+- readout amplitude, pulse length, and resonator frequency
+- active/passive fidelity comparison across qubits
+- pulse and resonator parameter sweeps across qubits
+- resonator, kernel, and IQ experiment figures for each qubit
+- CSV, JSON, raw-result, settings, error, and profile artifacts
+
+```bash
+python readout/run_all_qubits_report.py --qubits q5 q6 q9
+```
+
+Use `--skip-passive-comparison`, `--skip-resonator`, or `--skip-kernels` for a
+shorter run. Results are written under `data/readout_all_qubits_report`.
+
 This optimizer expects the Qratena repository to be on:
 
 ```text

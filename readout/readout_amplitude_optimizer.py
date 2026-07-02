@@ -12,17 +12,17 @@ from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ResetType
 
-from optimize.readout.utils.readout_scan_methods import scan_method_for
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
-from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
-from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from optimize.readout.utils.readout_sweep_artifacts import (
+from workbench.optimize.readout.utils.readout_scan_methods import scan_method_for
+from workbench.optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from workbench.optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
+from workbench.optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
+from workbench.optimize.readout.utils.readout_sweep_artifacts import (
     ReadoutAmplitudeSweepSaver,
     create_readout_run_dir,
 )
-from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
-from optimize.readout.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
-from resources.load_profile import load_task_manager
+from workbench.optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from workbench.optimize.readout.readout_workflow import ReadoutFidelityWorkflow, ReadoutFidelityWorkflowSettings
+from workbench.resources.load_profile import load_task_manager
 
 
 @dataclass(slots=True)
@@ -644,13 +644,12 @@ class ReadoutAmplitudeSweepWorkflow:
 
 
 if __name__ == "__main__":
-    from resources import *
-    from resources.load_profile import load_profile
+    from workbench.resources import *
+    from workbench.resources.load_profile import load_profile
 
-    profile = load_profile()    # 
+    profile = load_profile()
+    profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
 
-    profile.ensure_pi_ef_pulse_for_all_qubits()
-    
     task_manager = load_task_manager()
 
     workflow_settings = ReadoutFidelityWorkflowSettings(
@@ -663,7 +662,7 @@ if __name__ == "__main__":
         show_handler_output=False,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
     )
-    
+
     optimizer_settings = ReadoutAmplitudeSweepSettings(
         amplitudes=np.linspace(0.001, 0.11, 4),
         workflow_settings=workflow_settings,
@@ -675,8 +674,6 @@ if __name__ == "__main__":
                     key=lambda q: int(q[1:]))
 
     # qubits = ['q6']
-    
-    
 
     for qubit_name in qubits:
 
@@ -693,4 +690,3 @@ if __name__ == "__main__":
         plt.show()
 
 # %%
-

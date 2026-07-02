@@ -21,11 +21,11 @@ from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType, SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES
 
-from readout.readout_workflow import (
+from workbench.optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
     ReadoutFidelityWorkflowSettings,
 )
-from resources.load_profile import load_profile, load_task_manager
+from workbench.resources.load_profile import load_profile, load_task_manager
 
 
 PROFILE_NAME = "main"
@@ -604,6 +604,8 @@ if __name__ == "__main__":
     profile = load_profile()
     profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
     
+    # profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
+
     
     # prepare qubit list and exclude q20
     qubits = [q for q in profile.qubits.keys() if q != "q20"]
@@ -611,7 +613,7 @@ if __name__ == "__main__":
     
     qubits = ['q1','q3','q4']
     settings = ActiveResetIQBlobsComparisonSettings(
-        qubit_names=qubits,
+        qubit_names=['q5','q6','q9'],
         profile_name=args.profile_name,
         output_root=args.output_root,
         active_reset_num=5,

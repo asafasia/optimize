@@ -16,11 +16,11 @@ import numpy as np
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType
 
-from readout.readout_workflow import (
+from workbench.optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
     ReadoutFidelityWorkflowSettings,
 )
-from resources.load_profile import load_profile, load_task_manager
+from workbench.resources.load_profile import load_profile, load_task_manager
 
 
 PROFILE_NAME = "main"

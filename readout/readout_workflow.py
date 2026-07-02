@@ -4,14 +4,13 @@ import contextlib
 import io
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from qigeon import TaskSubmitterAsync
-from qratena import data
+from qratena.experiments.amplitude_rabi import AmplitudeRabiHandler
 from qratena.experiments.base_experiment import ExperimentSettings
 from qratena.experiments.experiment_handler import ExperimentHandler
 from qratena.experiments.iq_blobs import IQBlobsHandler, IQBlobsSettings
@@ -25,15 +24,10 @@ from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, Ex
 from qratena.util.sweeps_utils import MidIntervalArray
 from qratena.util.sweeps_utils import MidIntervalArray
 
-from resources.load_profile import load_profile, load_task_manager
-from resources import *
-
 
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
 from laboneq.dsl.session import Session
-
-import httpx
 
 
 @dataclass(slots=True)
@@ -154,7 +148,7 @@ class ReadoutFidelityWorkflow:
             with self._optional_output_suppression():
                 result = self._submit_handler(handler)
             self._load_handler_result(handler, result)
-
+            self.iq_blobs_handler.export_data()  # ensure data is exported if not done in analyze()
         return handler.data
 
     def _run_handler_locally(self, handler: ExperimentHandler) -> Any:
@@ -524,67 +518,97 @@ class ReadoutFidelityWorkflow:
 
 
 if __name__ == "__main__":
+    from workbench.resources.load_profile import load_profile, load_task_manager
+    from workbench.resources import *
 
-    qubit_names = ["q3"]
+    qubit_names = ["q6"]
 
-    load_profile()
+    states = ["g", "e"]  # or ["g", "e", "f"] depending on the system and goals
 
-    profile = Profile.default()
+    profile = load_profile('main_asaf')
+
+    task_manager = load_task_manager()
 
     profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
 
-    task_manager = load_task_manager()
+    if len(states) == 3:
+
+        settings_rabi = ExperimentSettings(
+            acquisition_type=AcquisitionType.SPECTROSCOPY,
+            update_params_method=UpdateParamsMethod.UPDATE,
+            exportation_method=ExportationMethod.NONE,
+            pulse_shape=SUPPORTED_PULSE_SHAPES.const,
+            num_shots=500,
+        )
+
+        handler = AmplitudeRabiHandler(
+            qubit_names=qubit_names,
+            settings=settings_rabi,
+            num_sweep_points=100,
+            amplitude_amplification_factor=3,
+            profile=profile,
+            transition="ef"
+        )
+
+        compiled_experiment = handler.get_compiled_experiment()
+
+        task_result = task_manager.wait(
+            task_manager.run_compiled_experiment(
+                experiment_name=handler.experiment_name,
+                profile_name="main",
+                qubit_names=handler.qubit_names,
+                compiled_experiment=compiled_experiment,
+                do_emulation=False
+            ))
+
+        handler.load_result(task_result)
+
+        handler.analyze()
+
+        handler.plot()
+
+        handler.update_system_params()
 
     qubit = profile.qubits[qubit_names[0]]
 
     readout_pulse = qubit.pulses[
         SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
 
+    # readout_pulse.readout_amplitude = 0.1
+    # readout_pulse.readout_duration = 1e-6
+
+    # qubit.readout_resonator_frequency.value = 5.145e9
+
     # %%
     settings = ReadoutFidelityWorkflowSettings(
         profile_name="main",
         do_emulation=False,
-        run_resonator=True,
+        run_resonator=True,  # already ran once to update the profile with resonator frequencies
         run_kernels=True,
         run_iq_blobs=True,
         show_handler_output=True,
-        reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+        reset=ResetSettings(
+            ResetType.ACTIVE,
+            reset_num=5,
+        ),
         do_plotting=True,
-        states=["g", "e"],
-    )
-
-
-    # for q in qubits:
-    workflow = ReadoutFidelityWorkflow(
-        qubit_names=['q3'],
-        profile=profile,
-        task_manager=task_manager,
-        settings=settings,
+        states=states,
     )
     
+    qubit_names = [q for q in sorted(profile.qubits.keys(), key=lambda x: int(x[1:])) if q != "q2"]
     
-
-    workflow.run()
-
     
-    # figures_dir = Path("data") / "readout_workflow_example_figures"
-    # figures_dir.mkdir(parents=True, exist_ok=True)
+    for qubit_name in qubit_names:
+        try:
+            workflow = ReadoutFidelityWorkflow(
+                qubit_names=[qubit_name],
+                profile=profile,
+                task_manager=task_manager,
+                settings=settings,
+            )
 
-    # handlers = {
-    #     "resonator": workflow.resonator_handler,
-    #     "kernels": workflow.kernel_handler,
-    #     "iq_blobs": workflow.iq_blobs_handler,
-    # }
+            workflow.run()
 
-    # for handler_name, handler in handlers.items():
-    #     if handler is None:
-    #         continue
-
-    #     figures = getattr(handler, "workflow_figures", [])
-    #     print(f"{handler_name}: {len(figures)} figures")
-    #     for figure_index, figure in enumerate(figures, start=1):
-    #         path = figures_dir / f"{handler_name}_{figure_index:02d}.png"
-    #         figure.savefig(path, dpi=200, bbox_inches="tight")
-    #         print(f"saved {path}")
-
+        except Exception as e:
+            print(f"Workflow failed with error: {e}")
 # %%
