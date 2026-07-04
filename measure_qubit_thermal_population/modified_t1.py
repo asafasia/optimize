@@ -35,12 +35,13 @@ class ModifiedT1(BaseExperiment):
         qubit_names_to_measure: list[str] | None = None,
         settings: ExperimentSettings | None = None,
     ) -> None:
+        self.settings = settings or ExperimentSettings()
         super().__init__(
             experiment_name=EXPERIMENT_NAME,
             qubit_names=qubit_names,
             configuration_params=configuration_params,
             qubit_names_to_measure=qubit_names_to_measure,
-            settings=settings,
+            settings=self.settings,
         )
         self.initial_state = validate_initial_state(initial_state)
         self.pi_pulse_shape: SUPPORTED_PULSE_SHAPES = self.settings.pulse_shape
@@ -106,7 +107,7 @@ class ModifiedT1Handler(ExperimentHandler):
     def __init__(
         self,
         qubit_names: list[str],
-        initial_state: InitialState,
+        initial_state: str,
         decay_time_sweep_interval_length: float,
         num_sweep_points: int,
         relaxation_time_t1_factor: int = 7,
@@ -242,6 +243,5 @@ def validate_initial_state(initial_state: str) -> InitialState:
     if initial_state not in {"g", "e", "f"}:
         raise ValueError("initial_state must be one of: 'g', 'e', 'f'")
     return initial_state
-
 
 

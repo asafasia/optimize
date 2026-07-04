@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Repeat 1D fine Rabi and plot selected odd/even points over time."
     )
@@ -80,7 +82,9 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run through task manager emulation instead of hardware.",
     )
-    return parser.parse_args()
+    if argv is None and Path(sys.argv[0]).name == "ipykernel_launcher.py":
+        argv = []
+    return parser.parse_args(argv)
 
 
 def selected_repetition_mask(repetitions: np.ndarray, parity: str, drop_edges: bool) -> np.ndarray:
@@ -194,25 +198,30 @@ def save_plot(
     if elapsed_min.size > 1:
         jump_scores[1:] = np.mean(np.abs(np.diff(values, axis=0)), axis=1)
 
-    fig, (ax_top, ax_bottom) = plt.subplots(
+    fig = plt.figure(figsize=(9, 7))
+    grid = fig.add_gridspec(
         2,
-        1,
-        figsize=(9, 7),
-        sharex=True,
-        gridspec_kw={"height_ratios": [2.2, 1]},
+        2,
+        height_ratios=[2.2, 1],
+        width_ratios=[1, 0.035],
+        hspace=0.08,
+        wspace=0.1,
     )
+    ax_top = fig.add_subplot(grid[0, 0])
+    ax_bottom = fig.add_subplot(grid[1, 0], sharex=ax_top)
+    cbar_ax = fig.add_subplot(grid[0, 1])
+    spacer_ax = fig.add_subplot(grid[1, 1])
+    spacer_ax.axis("off")
 
-    for repetition in selected_repetitions:
-        xs = [float(r["elapsed_s"]) / 60 for r in rows if r["repetition"] == int(repetition)]
-        ys = [float(r["value"]) for r in rows if r["repetition"] == int(repetition)]
-        ax_top.plot(xs, ys, marker=".", linewidth=1.0, label=f"n={int(repetition)}")
-
-    ax_top.set_ylabel("|output|")
-    ax_top.set_title(f"1D fine-Rabi {point_parity} points vs time")
-    ax_top.grid(True, alpha=0.25)
-
-    if selected_repetitions.size <= 16:
-        ax_top.legend(ncol=2, fontsize=8)
+    mesh = ax_top.pcolormesh(
+        elapsed_min,
+        selected_repetitions,
+        values.T,
+        shading="auto",
+    )
+    ax_top.set_ylabel("Fine-Rabi repetition")
+    ax_top.set_title(f"1D fine-Rabi {point_parity} points stability")
+    fig.colorbar(mesh, cax=cbar_ax, label="Excitation")
 
     ax_bottom.plot(
         elapsed_min,
@@ -233,9 +242,21 @@ def save_plot(
     ax_bottom.grid(True, alpha=0.25)
     ax_bottom.legend(fontsize=8)
 
-    fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
+
+
+def save_outputs(
+    csv_path: Path,
+    metrics_csv_path: Path,
+    png_path: Path,
+    rows: list[dict[str, float | int | str]],
+    selected_repetitions: np.ndarray,
+    point_parity: str,
+) -> None:
+    save_csv(csv_path, rows)
+    save_metrics_csv(metrics_csv_path, rows, selected_repetitions)
+    save_plot(png_path, rows, selected_repetitions, point_parity)
 
 
 def main() -> None:
@@ -279,14 +300,14 @@ def main() -> None:
     fine_rabi_1d.profile = profile
 
     settings = SettingsFineRabi(
-        do_emulation=args.emulate,
+        do_emulation=True,
         acquisition_type=AcquisitionType.DISCRIMINATION,
         averaging_mode=AveragingMode.CYCLIC,
         exportation_method=ExportationMethod.NONE,
         update_params_method=UpdateParamsMethod.NONE,
         num_shots=args.shots,
         rotation_type=RotationType.PI_HALF,
-        pulse_shape=SUPPORTED_PULSE_SHAPES.drag,
+        pulse_shape=SUPPORTED_PULSE_SHAPES.const,
         reset=ResetSettings(reset_type=ResetType.ACTIVE),
     )
 
@@ -308,57 +329,83 @@ def main() -> None:
     start = time.monotonic()
     duration_s = args.duration_min * 60
     run_index = 0
+    interrupted = False
 
-    while True:
-        elapsed_s = time.monotonic() - start
-        if elapsed_s >= duration_s:
-            break
-        if args.max_runs is not None and run_index >= args.max_runs:
-            break
+    try:
+        while True:
+            elapsed_s = time.monotonic() - start
+            if elapsed_s >= duration_s:
+                break
+            if args.max_runs is not None and run_index >= args.max_runs:
+                break
 
-        print(
-            f"Running 1D fine Rabi {run_index + 1}; "
-            f"elapsed {elapsed_s / 60:.2f}/{args.duration_min:.2f} min ..."
-        )
-        task_id = task_manager.submit_compiled_experiment(
-            experiment_name=handler.experiment_name,
-            profile_name=args.profile_name,
-            qubit_names=handler.qubit_names,
-            compiled_experiment=compiled_experiment,
-            do_emulation=args.emulate,
-        )
-        task_result = task_manager.wait_for_result(task_id)
+            print(
+                f"Running 1D fine Rabi {run_index + 1}; "
+                f"elapsed {elapsed_s / 60:.2f}/{args.duration_min:.2f} min ..."
+            )
+            task_id = task_manager.submit_compiled_experiment(
+                experiment_name=handler.experiment_name,
+                profile_name=args.profile_name,
+                qubit_names=handler.qubit_names,
+                compiled_experiment=compiled_experiment,
+                do_emulation=args.emulate,
+            )
+            task_result = task_manager.wait_for_result(task_id)
 
-        experiment_result = from_json(task_result.raw_data)
-        trace = extract_trace(experiment_result, args.qubit, repetitions.size)
-        timestamp = datetime.now().isoformat(timespec="seconds")
-        elapsed_s = time.monotonic() - start
+            experiment_result = from_json(task_result.raw_data)
+            trace = extract_trace(experiment_result, args.qubit, repetitions.size)
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            elapsed_s = time.monotonic() - start
 
-        for repetition, value in zip(repetitions[mask], trace[mask]):
-            rows.append(
-                {
-                    "timestamp": timestamp,
-                    "run_index": run_index,
-                    "elapsed_s": float(elapsed_s),
-                    "qubit": args.qubit,
-                    "repetition": int(repetition),
-                    "point_parity": args.point_parity,
-                    "value": float(value),
-                }
+            for repetition, value in zip(repetitions[mask], trace[mask]):
+                rows.append(
+                    {
+                        "timestamp": timestamp,
+                        "run_index": run_index,
+                        "elapsed_s": float(elapsed_s),
+                        "qubit": args.qubit,
+                        "repetition": int(repetition),
+                        "point_parity": args.point_parity,
+                        "value": float(value),
+                    }
+                )
+
+            save_outputs(
+                csv_path,
+                metrics_csv_path,
+                png_path,
+                rows,
+                selected_repetitions,
+                args.point_parity,
             )
 
-        save_csv(csv_path, rows)
-        save_metrics_csv(metrics_csv_path, rows, selected_repetitions)
-        save_plot(png_path, rows, selected_repetitions, args.point_parity)
+            run_index += 1
+            if args.sleep_s > 0:
+                time.sleep(args.sleep_s)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Stopping sweep early; saving completed runs.")
+    finally:
+        if rows:
+            save_outputs(
+                csv_path,
+                metrics_csv_path,
+                png_path,
+                rows,
+                selected_repetitions,
+                args.point_parity,
+            )
 
-        run_index += 1
-        if args.sleep_s > 0:
-            time.sleep(args.sleep_s)
-
-    print(f"Completed {run_index} runs.")
-    print(f"Saved CSV: {csv_path}")
-    print(f"Saved metrics CSV: {metrics_csv_path}")
-    print(f"Saved plot: {png_path}")
+    if interrupted:
+        print(f"Stopped after {run_index} completed runs.")
+    else:
+        print(f"Completed {run_index} runs.")
+    if rows:
+        print(f"Saved CSV: {csv_path}")
+        print(f"Saved metrics CSV: {metrics_csv_path}")
+        print(f"Saved plot: {png_path}")
+    else:
+        print("No completed runs; no CSV or plot was saved.")
 
 
 if __name__ == "__main__":

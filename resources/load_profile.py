@@ -18,7 +18,8 @@ def required_env_any(*names: str) -> str:
     if value:
         return value
     joined_names = " or ".join(names)
-    raise RuntimeError(f"Missing required environment variable: {joined_names}")
+    raise RuntimeError(
+        f"Missing required environment variable: {joined_names}")
 
 
 def env_any(*names: str) -> str | None:
@@ -31,7 +32,8 @@ def env_any(*names: str) -> str | None:
 
 def load_profile(branch: str = "main") -> "Profile":
     connection_string = env_any("QARAKAL_MONGO_URI", "MONGO_CONNECTION_STRING")
-    blob_connection_string = env_any("QARAKAL_BLOB_CONN_STR", "BLOBS_CONNECTION_STRING")
+    blob_connection_string = env_any(
+        "QARAKAL_BLOB_CONN_STR", "BLOBS_CONNECTION_STRING")
     if not connection_string or not blob_connection_string:
         from qratena.system.components_params.profile import Profile
 
@@ -39,7 +41,8 @@ def load_profile(branch: str = "main") -> "Profile":
         profile.name = branch
         return profile
 
-    database_name = os.environ.get("QARAKAL_DB_NAME") or os.environ.get("QRATENA_DATABASE_NAME", "QPUs")
+    database_name = os.environ.get("QARAKAL_DB_NAME") or os.environ.get(
+        "QRATENA_DATABASE_NAME", "QPUs")
     blob_container_name = os.environ.get("QARAKAL_BLOB_CONTAINER") or os.environ.get(
         "QRATENA_BLOBS_CONTAINER", "profiles"
     )
@@ -94,9 +97,12 @@ def load_task_manager() -> "TaskSubmitterAsync":
 
 
 def push_profile(profile: "Profile", branch: str = "main_asaf") -> None:
-    connection_string = required_env_any("QARAKAL_MONGO_URI", "MONGO_CONNECTION_STRING")
-    database_name = os.environ.get("QARAKAL_DB_NAME") or os.environ.get("QRATENA_DATABASE_NAME", "QPUs")
-    blob_connection_string = required_env_any("QARAKAL_BLOB_CONN_STR", "BLOBS_CONNECTION_STRING")
+    connection_string = required_env_any(
+        "QARAKAL_MONGO_URI", "MONGO_CONNECTION_STRING")
+    database_name = os.environ.get("QARAKAL_DB_NAME") or os.environ.get(
+        "QRATENA_DATABASE_NAME", "QPUs")
+    blob_connection_string = required_env_any(
+        "QARAKAL_BLOB_CONN_STR", "BLOBS_CONNECTION_STRING")
     blob_container_name = os.environ.get("QARAKAL_BLOB_CONTAINER") or os.environ.get(
         "QRATENA_BLOBS_CONTAINER", "profiles"
     )
@@ -117,5 +123,3 @@ if __name__ == "__main__":
     print(f"Loaded profile with {len(profile.qubits)} qubits.")
     
     
-    
-    print(profile.qubits['q3'].pulses['readout']['const'].readout_duration)
