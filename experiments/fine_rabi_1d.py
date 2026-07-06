@@ -1,5 +1,5 @@
 import numpy as np
-from laboneq.simple import from_json
+from laboneq.simple import AcquisitionType, from_json
 from qratena.experiments.fine_rabi import fine_rabi_1d as fine_rabi_1d_module
 from qratena.experiments.fine_rabi.fine_rabi_1d import (
     FineRabi1DHandler,
@@ -18,17 +18,23 @@ qubits = ["q8"]
 
 settings = SettingsFineRabi(
     do_emulation=True,
+    acquisition_type=AcquisitionType.INTEGRATION,
     exportation_method=ExportationMethod.NONE,
     update_params_method=UpdateParamsMethod.NONE,
-    num_shots=500,
+    num_shots=2500,
     rotation_type=RotationType.PI_HALF,
     pulse_shape=SUPPORTED_PULSE_SHAPES.const,
     reset=ResetSettings(reset_type=ResetType.ACTIVE),
 )
 
-repetitions = np.arange(0, 100, 1)
+repetitions = np.arange(1, 200, 2)
 
 profile = load_profile()
+
+pulse = profile.get_pi_params(qubits[0], pulse_shape=SUPPORTED_PULSE_SHAPES.const)
+
+pulse.pi_pulse_amplitude = 0.0322721
+
 
 # FineRabi1D currently reads the profile from its module during construction.
 fine_rabi_1d_module.profile = profile

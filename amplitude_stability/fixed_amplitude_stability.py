@@ -21,7 +21,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Repeat 1D fine Rabi and plot selected odd/even points over time."
     )
-    parser.add_argument("--qubit", default="q4", help="Qubit to measure, e.g. q4.")
+    parser.add_argument("--qubit", default="q8", help="Qubit to measure, e.g. q4.")
     parser.add_argument(
         "--duration-min",
         type=float,
@@ -46,7 +46,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         nargs=3,
         metavar=("START", "STOP", "STEP"),
-        default=[0, 100, 1],
+        default=[1, 100, 2],
         help="Fine-Rabi repetition range, passed to np.arange(start, stop, step).",
     )
     parser.add_argument(
@@ -221,7 +221,7 @@ def save_plot(
     )
     ax_top.set_ylabel("Fine-Rabi repetition")
     ax_top.set_title(f"1D fine-Rabi {point_parity} points stability")
-    fig.colorbar(mesh, cax=cbar_ax, label="Excitation")
+    fig.colorbar(mesh, cax=cbar_ax, label="Acquired signal")
 
     ax_bottom.plot(
         elapsed_min,
@@ -294,6 +294,10 @@ def main() -> None:
         raise ValueError("No selected repetitions. Change --point-parity or --drop-edges.")
 
     profile = load_profile(args.profile_branch)
+    
+    pulse = profile.get_pi_params(args.qubit, pulse_shape=SUPPORTED_PULSE_SHAPES.const)
+    
+    pulse.pi_pulse_amplitude = 0.01
     task_manager = load_task_manager()
 
     # FineRabi1D currently reads this module-level variable inside define_experiment().
@@ -301,7 +305,7 @@ def main() -> None:
 
     settings = SettingsFineRabi(
         do_emulation=True,
-        acquisition_type=AcquisitionType.DISCRIMINATION,
+        acquisition_type=AcquisitionType.INTEGRATION,
         averaging_mode=AveragingMode.CYCLIC,
         exportation_method=ExportationMethod.NONE,
         update_params_method=UpdateParamsMethod.NONE,

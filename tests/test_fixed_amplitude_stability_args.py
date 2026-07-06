@@ -24,8 +24,9 @@ def test_parse_args_ignores_ipykernel_argv(monkeypatch):
 
     args = parse_args()
 
-    assert args.qubit == "q4"
+    assert args.qubit == "q8"
     assert args.duration_min == 10.0
+    assert args.point_parity == "odd"
 
 
 def test_parse_args_keeps_cli_validation_strict():
@@ -35,6 +36,14 @@ def test_parse_args_keeps_cli_validation_strict():
         assert exc.code == 2
     else:
         raise AssertionError("parse_args accepted an unknown command-line option.")
+
+
+def test_selected_repetition_mask_uses_odd_superposition_points():
+    repetitions = np.arange(0, 10, 1)
+
+    mask = stability.selected_repetition_mask(repetitions, "odd", drop_edges=False)
+
+    assert repetitions[mask].tolist() == [1, 3, 5, 7, 9]
 
 
 def test_save_plot_writes_repetition_time_heatmap(tmp_path, monkeypatch):

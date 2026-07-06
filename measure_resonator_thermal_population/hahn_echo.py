@@ -13,15 +13,39 @@ import numpy as np
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from laboneq.simple import LinearSweepParameter, SweepParameter
+from laboneq.serializers import from_json
+from laboneq.simple import (
+    AcquisitionType,
+    AveragingMode,
+    LinearSweepParameter,
+    SweepParameter,
+)
 from qratena.experiments.base_experiment import BaseExperiment, ExperimentSettings
 from qratena.experiments.experiment_handler import ExperimentHandler
 from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.pulse_factory import PulseFactory
-from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES
+from qratena.system.components_params.reset_settings import ResetSettings
+from qratena.util.enums import (
+    ExportationMethod,
+    ResetType,
+    SUPPORTED_PULSE_SHAPES,
+    SUPPORTED_PULSE_TYPES,
+    UpdateParamsMethod,
+)
+
+from measure_resonator_thermal_population.decay_fit import (
+    SECONDS_TO_MICROSECONDS,
+    fit_exponential_decay,
+    fit_gaussian_decay,
+)
 
 
 EXPERIMENT_NAME = "hahn_echo"
+PROFILE_NAME = "main"
+QUBITS = ["q8"]
+ECHO_DELAY_SWEEP_START = 40e-8
+ECHO_DELAY_SWEEP_STOP = 50e-6
+NUM_SWEEP_POINTS = 151
 
 
 class HahnEcho(BaseExperiment):
@@ -36,12 +60,13 @@ class HahnEcho(BaseExperiment):
         qubit_names_to_measure: list[str] | None = None,
         settings: ExperimentSettings | None = None,
     ) -> None:
+        self.settings = settings or ExperimentSettings()
         super().__init__(
             experiment_name=EXPERIMENT_NAME,
             qubit_names=qubit_names,
             qubit_names_to_measure=qubit_names_to_measure,
             configuration_params=configuration_params,
-            settings=settings,
+            settings=self.settings,
         )
         self.echo_delay_sweep_list = echo_delay_sweep_list
         self.final_pi_half_phase = final_pi_half_phase
@@ -72,7 +97,7 @@ class HahnEcho(BaseExperiment):
                             phase=np.pi / 2,
                         )
                         self.delay(signal=f"drive_{qubit_name}", time=free_evolution_time)
-                        self._play_pi(qubit_name=qubit_name, uid=f"pi_{qubit_name}")
+                        # self._play_pi(qubit_name=qubit_name, uid=f"pi_{qubit_name}")
                         self.delay(signal=f"drive_{qubit_name}", time=free_evolution_time)
                         self._play_pi_half(
                             qubit_name=qubit_name,
@@ -177,12 +202,33 @@ class HahnEchoHandler(ExperimentHandler):
             )
             y_real = np.real(acquired_results)
             y_abs = np.abs(acquired_results)
+            signal = y_abs
+            fit_result = fit_exponential_decay(self.x_time_data_points, y_abs)
+            gaussian_fit_result = fit_gaussian_decay(self.x_time_data_points, y_abs)
 
             self.data[qubit_name] = {
                 "echo_delay_points": self.x_time_data_points,
+                "echo_delay_points_us": (
+                    self.x_time_data_points * SECONDS_TO_MICROSECONDS
+                ),
                 "acquired_results": acquired_results,
                 "y_real": y_real,
                 "y_abs": y_abs,
+                "signal": signal,
+                "y_abs_fitted": fit_result["fitted"],
+                "fitted_t2_echo": fit_result["tau"],
+                "fit_amplitude": fit_result["amplitude"],
+                "fit_offset": fit_result["offset"],
+                "fit_r2": fit_result["r2"],
+                "fit_score": fit_result["score"],
+                "fit_points": fit_result["fit_points"],
+                "y_abs_gaussian_fitted": gaussian_fit_result["fitted"],
+                "fitted_gaussian_t2_echo": gaussian_fit_result["tau"],
+                "gaussian_fit_amplitude": gaussian_fit_result["amplitude"],
+                "gaussian_fit_offset": gaussian_fit_result["offset"],
+                "gaussian_fit_r2": gaussian_fit_result["r2"],
+                "gaussian_fit_score": gaussian_fit_result["score"],
+                "gaussian_fit_points": gaussian_fit_result["fit_points"],
                 "contrast_estimate": float(np.max(y_real) - np.min(y_real)),
             }
             results.append(self.data[qubit_name])
@@ -192,21 +238,49 @@ class HahnEchoHandler(ExperimentHandler):
     def plot(self) -> list[Figure]:
         figs = []
         for qubit_name in self.qubit_names:
+            qubit_data = self.data[qubit_name]
+            echo_delay_points_us = qubit_data["echo_delay_points_us"]
             fig, ax = plt.subplots()
             ax.plot(
-                self.data[qubit_name]["echo_delay_points"],
-                self.data[qubit_name]["y_real"],
+                echo_delay_points_us,
+                qubit_data["signal"],
                 "o-",
-                label="real",
+                label="signal",
             )
-            ax.plot(
-                self.data[qubit_name]["echo_delay_points"],
-                self.data[qubit_name]["y_abs"],
-                "o-",
-                label="abs",
-            )
-            ax.set_title(f"Hahn echo {qubit_name}")
-            ax.set_xlabel("Echo delay [s]")
+            has_exponential_fit = len(qubit_data["y_abs_fitted"]) > 0
+            has_gaussian_fit = len(qubit_data["y_abs_gaussian_fitted"]) > 0
+            if has_exponential_fit:
+                fitted_t2_us = qubit_data["fitted_t2_echo"] * SECONDS_TO_MICROSECONDS
+                ax.plot(
+                    echo_delay_points_us,
+                    qubit_data["y_abs_fitted"],
+                    "r-",
+                    label=(
+                        f"exp fit, T2 echo={fitted_t2_us:.2f} us, "
+                        f"R^2={qubit_data['fit_r2']:.3f}"
+                    ),
+                )
+                ax.set_title(
+                    f"Hahn echo {qubit_name}, T2 echo={fitted_t2_us:.2f} us"
+                )
+            if has_gaussian_fit:
+                gaussian_t2_us = (
+                    qubit_data["fitted_gaussian_t2_echo"] * SECONDS_TO_MICROSECONDS
+                )
+                ax.plot(
+                    echo_delay_points_us,
+                    qubit_data["y_abs_gaussian_fitted"],
+                    "g--",
+                    label=(
+                        f"Gaussian fit, T2 echo={gaussian_t2_us:.2f} us, "
+                        f"R^2={qubit_data['gaussian_fit_r2']:.3f}"
+                    ),
+                )
+            if not has_exponential_fit and not has_gaussian_fit:
+                ax.set_title(f"Hahn echo {qubit_name}, fit failed")
+            elif not has_exponential_fit:
+                ax.set_title(f"Hahn echo {qubit_name}, Gaussian fit only")
+            ax.set_xlabel("Echo delay [us]")
             ax.set_ylabel("Acquired signal")
             ax.legend()
             figs.append(fig)
@@ -230,3 +304,49 @@ class HahnEchoHandler(ExperimentHandler):
                 "echo_delay_sweep_start must be at least the pi pulse duration "
                 f"({min_pi_duration:.3e} s for the selected qubits/pulse shape)"
             )
+
+
+def main() -> None:
+    from resources.load_profile import load_profile, load_task_manager
+
+    profile = load_profile(PROFILE_NAME)
+    task_manager = load_task_manager()
+
+    settings = ExperimentSettings(
+        acquisition_type=AcquisitionType.DISCRIMINATION,
+        averaging_mode=AveragingMode.CYCLIC,
+        update_params_method=UpdateParamsMethod.NONE,
+        exportation_method=ExportationMethod.FULL,
+        pulse_shape=SUPPORTED_PULSE_SHAPES.const,
+        num_shots=2500,
+        reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
+    )
+
+    handler = HahnEchoHandler(
+        qubit_names=QUBITS,
+        echo_delay_sweep_start=ECHO_DELAY_SWEEP_START,
+        echo_delay_sweep_stop=ECHO_DELAY_SWEEP_STOP,
+        num_sweep_points=NUM_SWEEP_POINTS,
+        settings=settings,
+        configuration_params=profile,
+    )
+    compiled_experiment = handler.get_compiled_experiment()
+
+    task_id = task_manager.submit_compiled_experiment(
+        experiment_name=handler.experiment_name,
+        profile_name=PROFILE_NAME,
+        qubit_names=handler.qubit_names,
+        compiled_experiment=compiled_experiment,
+        do_emulation=False,
+    )
+    task_result = task_manager.wait_for_result(task_id)
+
+    handler.experiment_result = from_json(task_result.raw_data)
+    handler.analysis_result = handler.analyze()
+    handler.figs = handler.plot()
+    handler.export_data(figs=handler.figs)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()

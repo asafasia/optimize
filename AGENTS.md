@@ -9,6 +9,14 @@ This is the focused working folder for Qarakal experiments and optimization.
 - `optimize/` for optimization workflows and helper code
 - `outputs/` for generated figures, logs, and result files
 
+## Python
+
+Use the workspace virtual environment for verification and scripts:
+
+- Prefer `.venv/bin/python` over bare `python` or global `python3`.
+- Use `.venv/bin/pytest`, `.venv/bin/ruff`, and similar tool entrypoints when available.
+- If the virtual environment is missing or stale, recreate it with `uv sync` before falling back to a global interpreter.
+
 ## Parent Package Repositories
 
 The package repositories live one directory up. Treat them as dependencies or

@@ -2,6 +2,7 @@
 # Active reset is supported only with DRAG pulses!!!
 
 
+from laboneq.serializers import from_json
 import numpy as np
 from qratena.experiments.fine_rabi.fine_rabi_2d import FineRabi2DHandler, FineRabi2DSettings, RotationType, ScanParameter
 from qratena.system.components_params.reset_settings import ResetSettings
@@ -17,21 +18,21 @@ qubits = ["q8",]
 
 settings = FineRabi2DSettings(
     do_emulation=True,
-    exportation_method=ExportationMethod.NONE,
+    exportation_method=ExportationMethod.EXPRESSIVE,
     update_params_method=UpdateParamsMethod.NONE,
     num_shots=500,
-    rotation_type=RotationType.PI,
+    rotation_type=RotationType.PI_HALF,
     scan_parameter=ScanParameter.AMPLITUDE,
-    pulse_shape=SUPPORTED_PULSE_SHAPES.drag,
+    pulse_shape=SUPPORTED_PULSE_SHAPES.const,
     reset=ResetSettings(reset_type=ResetType.ACTIVE),
 )
 
-Nx = 51
-Ny = 51
+Nx = 151
+Ny = 151
 
 beta_values = np.linspace(-0.2, 0.2, Nx)
 detuning_values = np.linspace(-20e6, 20e6, Nx)
-amplitude_values = np.linspace(0.85, 1.15, Nx)
+amplitude_values = np.linspace(0.95, 1.05, Nx)
 
 scan_values = {
     ScanParameter.BETA: beta_values,
@@ -46,6 +47,32 @@ task_manager = load_task_manager()
 pulse = profile.get_pi_params(qubits[0], pulse_shape=settings.pulse_shape)
 
 # print(pulse.pi_pulse_amplitude)
+
+
+def print_optimized_parameters(handler: FineRabi2DHandler) -> None:
+    for result in handler.results:
+        qubit_name = result.qubit_name
+        x_intersect = result.x_intersect
+        scan_parameter = handler.settings.scan_parameter
+
+        if scan_parameter is ScanParameter.AMPLITUDE:
+            base_amplitude = handler.current_pi_amplitudes[qubit_name]
+            optimized_amplitude = x_intersect * base_amplitude
+            if handler.settings.rotation_type is RotationType.PI_HALF:
+                optimized_amplitude *= 2
+
+            print(
+                f"{qubit_name}: optimized pi_pulse_amplitude="
+                f"{optimized_amplitude:.7f} (x_intersect={x_intersect:.7f})"
+            )
+        elif scan_parameter is ScanParameter.BETA:
+            print(f"{qubit_name}: optimized beta={x_intersect:.7f}")
+        else:
+            print(
+                f"{qubit_name}: optimized {scan_parameter.value}="
+                f"{x_intersect:.7f}"
+            )
+
 
 handler = FineRabi2DHandler(
     qubit_names=qubits,
@@ -71,4 +98,7 @@ handler.experiment_result = from_json(task_result.raw_data)
 
 
 handler.analyze()
-handler.plot()
+print_optimized_parameters(handler)
+figs = handler.plot()
+handler.export_data(figs)
+    
