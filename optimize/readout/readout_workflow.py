@@ -6,6 +6,7 @@ import json
 import sys
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
@@ -58,6 +59,8 @@ class ReadoutFidelityWorkflowSettings:
     show_handler_output: bool = True
     report_timing: bool = True
     task_status_poll_interval: float = 10.0
+    task_execution_mode: str = "wait"
+    low_priority_tasks: bool = False
     reset: ResetSettings = field(default_factory=ResetSettings)
     states: list[str] = field(default_factory=lambda: ["g", "e"])
 
@@ -89,9 +92,12 @@ class ReadoutFidelityWorkflow:
         self.resonator_handler = None
         self.kernel_handler = None
         self.iq_blobs_handler = None
+        self.resonator_handlers = []
+        self.kernel_handlers = []
 
         self.results: dict[str, Any] = {}
         self.timings: dict[str, float] = {}
+        self.submitted_tasks: list[dict[str, Any]] = []
 
     def run(self) -> dict[str, Any]:
         workflow_start = perf_counter()
@@ -118,33 +124,52 @@ class ReadoutFidelityWorkflow:
         return self.results
 
     def run_resonator_node(self) -> Any:
-        handler = self._build_resonator_handler()
-        self.resonator_handler = handler
+        self.resonator_handlers = []
+        resonator_data = {}
 
-        if self.settings.do_emulation:
-            self._run_handler_locally(handler)
-        else:
-            with self._optional_output_suppression():
-                result = self._submit_handler(handler)
-            self._load_handler_result(handler, result)
+        for qubit_name in self.qubit_names:
+            handler = self._build_resonator_handler(qubit_name)
+            self.resonator_handlers.append(handler)
+            self.resonator_handler = handler
 
-        self._update_profile_from_resonator(handler)
+            if self.settings.do_emulation:
+                self._run_handler_locally(handler)
+            else:
+                with self._optional_output_suppression():
+                    result = self._submit_handler(handler)
+                if self._submit_only:
+                    resonator_data[qubit_name] = result
+                    continue
+                self._load_handler_result(handler, result)
 
-        return handler.data
+            self._update_profile_from_resonator(handler)
+            resonator_data.update(handler.data)
+
+        return resonator_data
 
     def run_kernel_node(self) -> Any:
         self._validate_kernel_states()
-        handler = self._build_kernel_handler()
-        self.kernel_handler = handler
+        self.kernel_handlers = []
+        kernel_data = {}
 
-        if self.settings.do_emulation:
-            self._run_handler_locally(handler)
-        else:
-            with self._optional_output_suppression():
-                result = self._submit_handler(handler)
-            self._load_handler_result(handler, result)
+        for qubit_name in self.qubit_names:
+            handler = self._build_kernel_handler(qubit_name)
+            self.kernel_handlers.append(handler)
+            self.kernel_handler = handler
 
-        return handler.data
+            if self.settings.do_emulation:
+                self._run_handler_locally(handler)
+            else:
+                with self._optional_output_suppression():
+                    result = self._submit_handler(handler)
+                if self._submit_only:
+                    kernel_data[qubit_name] = result
+                    continue
+                self._load_handler_result(handler, result)
+
+            kernel_data.update(handler.data)
+
+        return kernel_data
 
     def _validate_kernel_states(self) -> None:
         if self.settings.states not in (["g", "e"], ["g", "e", "f"]):
@@ -161,6 +186,8 @@ class ReadoutFidelityWorkflow:
         else:
             with self._optional_output_suppression():
                 result = self._submit_handler(handler)
+            if self._submit_only:
+                return result
             self._load_handler_result(handler, result)
             self.iq_blobs_handler.export_data()  # ensure data is exported if not done in analyze()
         return handler.data
@@ -194,11 +221,171 @@ class ReadoutFidelityWorkflow:
             handler.qubit_names,
             compiled_experiment,
             do_emulation=False,
+            low_priority=self.settings.low_priority_tasks,
         )
         self._timing_print(
             f"{label} submitted in {self._format_duration(perf_counter() - submit_start)}"
         )
+        task_record = self._task_record(handler, task_id)
+        self.submitted_tasks.append(task_record)
+        if self._submit_only:
+            return task_record
         return self._wait_for_task(task_id, label)
+
+    @property
+    def _submit_only(self) -> bool:
+        return self.settings.task_execution_mode == "submit_only"
+
+    def _task_record(self, handler: ExperimentHandler, task_id: Any) -> dict[str, Any]:
+        experiment_name = str(handler.experiment_name)
+        qubit_names = list(getattr(handler, "qubit_names", []) or [])
+        return {
+            "task_id": self._task_id_value(task_id),
+            "task_id_repr": repr(task_id),
+            "task_key": self._task_key(experiment_name, qubit_names),
+            "experiment_name": experiment_name,
+            "qubit_names": qubit_names,
+            "node": self._node_name(experiment_name),
+            "submitted_at": datetime.now().isoformat(timespec="seconds"),
+            "low_priority": bool(self.settings.low_priority_tasks),
+            "result_status": "pending",
+            "result_path": None,
+        }
+
+    def _task_id_value(self, task_id: Any) -> str:
+        if isinstance(task_id, (str, int)):
+            return str(task_id)
+
+        for attribute_name in ("task_id", "id", "uid"):
+            value = getattr(task_id, attribute_name, None)
+            if value is not None:
+                return str(value)
+
+        return str(task_id)
+
+    def _task_key(self, experiment_name: str, qubit_names: list[str]) -> str:
+        qubit_slug = "+".join(qubit_names) if qubit_names else "no_qubits"
+        return f"{experiment_name}/{qubit_slug}"
+
+    def _node_name(self, experiment_name: str) -> str:
+        lowered = experiment_name.lower()
+        if "resonator" in lowered:
+            return "resonator"
+        if "kernel" in lowered:
+            return "kernels"
+        if "iq" in lowered or "blob" in lowered:
+            return "iq_blobs"
+        return experiment_name
+
+    def collect_submitted_results(
+        self,
+        task_entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Fetch saved task IDs and analyze them through freshly built handlers."""
+        previous_mode = self.settings.task_execution_mode
+        self.settings.task_execution_mode = "wait"
+        try:
+            self.results = {}
+            self.timings = {}
+            entries_by_node = self._entries_by_node(task_entries)
+
+            if self.settings.run_resonator:
+                self.results["resonator"] = self._collect_resonator_results(
+                    entries_by_node.get("resonator", [])
+                )
+
+            if self.settings.run_kernels:
+                self.results["kernels"] = self._collect_kernel_results(
+                    entries_by_node.get("kernels", [])
+                )
+
+            if self.settings.run_iq_blobs:
+                self.results["iq_blobs"] = self._collect_iq_blobs_results(
+                    entries_by_node.get("iq_blobs", [])
+                )
+
+            return self.results
+        finally:
+            self.settings.task_execution_mode = previous_mode
+
+    def _entries_by_node(
+        self,
+        task_entries: list[dict[str, Any]],
+    ) -> dict[str, list[dict[str, Any]]]:
+        entries_by_node: dict[str, list[dict[str, Any]]] = {}
+        for entry in task_entries:
+            entries_by_node.setdefault(str(entry.get("node", "")), []).append(entry)
+        return entries_by_node
+
+    def _collect_resonator_results(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        self.resonator_handlers = []
+        resonator_data = {}
+
+        entries_by_qubit = self._entries_by_single_qubit(entries)
+        for qubit_name in self.qubit_names:
+            entry = entries_by_qubit.get(qubit_name)
+            if entry is None:
+                continue
+            handler = self._build_resonator_handler(qubit_name)
+            self.resonator_handlers.append(handler)
+            self.resonator_handler = handler
+            result = self._wait_for_task(entry["task_id"], entry["task_key"])
+            self._load_handler_result(handler, result)
+            self._update_profile_from_resonator(handler)
+            resonator_data.update(handler.data)
+
+        return resonator_data
+
+    def _collect_kernel_results(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        self._validate_kernel_states()
+        self.kernel_handlers = []
+        kernel_data = {}
+
+        entries_by_qubit = self._entries_by_single_qubit(entries)
+        for qubit_name in self.qubit_names:
+            entry = entries_by_qubit.get(qubit_name)
+            if entry is None:
+                continue
+            handler = self._build_kernel_handler(qubit_name)
+            self.kernel_handlers.append(handler)
+            self.kernel_handler = handler
+            result = self._wait_for_task(entry["task_id"], entry["task_key"])
+            self._load_handler_result(handler, result)
+            kernel_data.update(handler.data)
+
+        return kernel_data
+
+    def _collect_iq_blobs_results(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        entry = entries[0] if entries else None
+        if entry is None:
+            return {}
+
+        handler = self._build_iq_blobs_handler()
+        self.iq_blobs_handler = handler
+        result = self._wait_for_task(entry["task_id"], entry["task_key"])
+        self._load_handler_result(handler, result)
+        handler.export_data()
+        return handler.data
+
+    def _entries_by_single_qubit(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        entries_by_qubit = {}
+        for entry in entries:
+            qubit_names = entry.get("qubit_names", [])
+            if len(qubit_names) == 1:
+                entries_by_qubit[str(qubit_names[0])] = entry
+        return entries_by_qubit
 
     def _load_handler_result(self, handler: ExperimentHandler, result: Any) -> None:
         """Convert task-manager result into the handler's normal data format.
@@ -507,11 +694,11 @@ class ReadoutFidelityWorkflow:
             yield
 
     def _update_profile_from_resonator(self, handler) -> None:
-        for qubit_name in self.qubit_names:
+        for qubit_name in handler.qubit_names:
             optimal_frequency = handler.data[qubit_name]["optimal_resonance_freq"]
             self.profile.qubits[qubit_name].readout_resonator_frequency.value = optimal_frequency
 
-    def _build_resonator_handler(self):
+    def _build_resonator_handler(self, qubit_name: str):
         settings = ExperimentSettings(
             log_level=0,
             num_shots=300,
@@ -527,7 +714,7 @@ class ReadoutFidelityWorkflow:
                 MidIntervalArray(mid_point=None, interval=150e6, num_points=120)
             ],
             long_drive_pulse=False,
-            qubit_names=[self.qubit_names[0]],
+            qubit_names=[qubit_name],
             settings=settings,
             profile=self.profile,
             session=self.session,
@@ -536,7 +723,7 @@ class ReadoutFidelityWorkflow:
 
         return handler
 
-    def _build_kernel_handler(self):
+    def _build_kernel_handler(self, qubit_name: str):
         settings = ExperimentSettings(
             log_level=0,
             num_shots=20000,
@@ -549,7 +736,7 @@ class ReadoutFidelityWorkflow:
             # do_plotting=self.settings.do_plotting,
         )
         handler = KernelTracesCalculationHandler(
-            qubit_names=[self.qubit_names[0]],
+            qubit_names=[qubit_name],
             settings=settings,
             profile=self.profile,
             session=self.session,

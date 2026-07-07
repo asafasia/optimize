@@ -35,6 +35,7 @@ def main() -> None:
         run_iq_blobs=True,
         do_plotting=False,
         show_handler_output=args.show_handler_output,
+        low_priority_tasks=args.low_priority_tasks,
         reset=ResetSettings(ResetType.ACTIVE, reset_num=args.active_reset_num),
         states=args.states,
     )
@@ -43,6 +44,8 @@ def main() -> None:
         workflow_settings=workflow_settings,
         method=ReadoutScanMethod(args.method),
         use_live_html_plotter=not args.no_live_html,
+        live_html_output_dir=args.output_dir,
+        submit_only=args.submit_only,
     )
 
     optimizer = ReadoutAmplitudeSweepWorkflow(
@@ -52,10 +55,11 @@ def main() -> None:
         settings=optimizer_settings,
     )
     optimizer.run()
-    figure = optimizer.plot()
-    run_dir = optimizer.save_results(output_dir=args.output_dir, figure=figure)
-    plt.close(figure)
-    print(f"Saved readout optimization results to {run_dir}")
+    if args.submit_only:
+        print(f"Submitted readout sweep tasks. Pending run folder: {optimizer.run_dir}")
+        return
+
+    print(f"Saved readout optimization results to {optimizer.run_dir}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +81,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-kernels", action="store_true")
     parser.add_argument("--show-handler-output", action="store_true")
     parser.add_argument("--no-live-html", action="store_true")
+    parser.add_argument(
+        "--low-priority-tasks",
+        action="store_true",
+        help="Submit task-manager experiments as low priority.",
+    )
+    parser.add_argument(
+        "--submit-only",
+        action="store_true",
+        help="Submit all sweep experiments and save task IDs without waiting for results.",
+    )
     return parser.parse_args()
 
 

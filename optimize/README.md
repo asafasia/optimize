@@ -5,8 +5,8 @@ workflows.
 
 ## All-Qubit HTML Report
 
-`readout/run_all_qubits_report.py` is the class-based replacement for the
-ad-hoc `run_all_qubits.py` script. It runs resonator spectroscopy, kernel
+`readout/scripts/run_all_qubits_report.py` is the class-based replacement for the
+ad-hoc `readout/scripts/run_all_qubits.py` script. It runs resonator spectroscopy, kernel
 calculation, and IQ blobs for each selected qubit, followed by a passive-reset
 IQ comparison. It saves a standalone HTML dashboard containing:
 
@@ -17,7 +17,7 @@ IQ comparison. It saves a standalone HTML dashboard containing:
 - CSV, JSON, raw-result, settings, error, and profile artifacts
 
 ```bash
-python readout/run_all_qubits_report.py --qubits q5 q6 q9
+python readout/scripts/run_all_qubits_report.py --qubits q5 q6 q9
 ```
 
 Use `--skip-passive-comparison`, `--skip-resonator`, or `--skip-kernels` for a
@@ -25,13 +25,13 @@ shorter run. Results are written under `data/readout_all_qubits_report`.
 
 ## Multiplexed IQ Blob Fidelity Comparison
 
-`readout/measure_all_qubit_multiplexed_iq_blob_fidelities.py` runs the
+`readout/scripts/measure_all_qubit_multiplexed_iq_blob_fidelities.py` runs the
 multiplexed IQ blobs experiment twice for selected qubits: once without active
 reset and once with active reset. It extracts each qubit's readout fidelity and
 saves raw CSV, comparison CSV, summary JSON, and a per-qubit comparison plot.
 
 ```bash
-python readout/measure_all_qubit_multiplexed_iq_blob_fidelities.py --qubits q5 q6 q9
+python readout/scripts/measure_all_qubit_multiplexed_iq_blob_fidelities.py --qubits q5 q6 q9
 ```
 
 By default it measures every qubit in the selected profile and writes
@@ -162,6 +162,7 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     show_handler_output=False,
     report_timing=True,
     task_status_poll_interval=10.0,
+    low_priority_tasks=False,
     states=["g", "e", "f"],
     reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
 )
@@ -181,19 +182,67 @@ optimizer = ReadoutAmplitudeSweepWorkflow(
 )
 
 optimizer.run()
-fig = optimizer.plot()
-run_dir = optimizer.save_results(figure=fig)
+run_dir = optimizer.run_dir
 ```
 
 Kernel traces run as one experiment with one compiled experiment and one result.
 Supported kernel state lists are `["g", "e"]` and `["g", "e", "f"]`.
 
+## Submit Now, Collect Later
+
+For large fixed sweeps, set `submit_only=True` on
+`ReadoutAmplitudeSweepSettings`. This mode is supported only with
+`method=ReadoutScanMethod.SWEEP`. It submits every configured sweep point to the
+task manager, creates the normal dated run folder, and saves metadata without
+waiting for acquired results.
+
+Set `low_priority_tasks=True` in `ReadoutFidelityWorkflowSettings` to submit the
+task-manager jobs with qigeon's low-priority flag.
+
+```python
+optimizer_settings = ReadoutAmplitudeSweepSettings(
+    amplitudes=np.linspace(0.005, 0.15, 20),
+    method=ReadoutScanMethod.SWEEP,
+    submit_only=True,
+    workflow_settings=workflow_settings,
+)
+
+optimizer = ReadoutAmplitudeSweepWorkflow(...)
+optimizer.run()
+pending_run_dir = optimizer.run_dir
+```
+
+The pending folder contains `task_manifest.json`, `metadata.json`, `profile.json`,
+empty result/figure directories, and a report marked
+`submitted_pending_results`. Each task entry includes a deterministic
+`task_key`, `task_id`, amplitude, sweep index, qubits, experiment node, and
+structured sweep parameters.
+
+Later, recreate the optimizer with the same profile/task-manager context and
+collect results from the folder:
+
+```python
+summary = optimizer.check_submitted_results(pending_run_dir)
+print(summary["message"])
+
+optimizer.collect_submitted_results(pending_run_dir)
+```
+
+`check_submitted_results(...)` does not block; it updates `task_manifest.json`
+with the latest qigeon status and tells you whether to wait. Collection reloads
+`task_manifest.json`, waits for the saved task IDs, analyzes the returned data
+through the workflow handlers, writes the usual result files, and marks the
+manifest complete.
+
+See [`readout/docs/submit_only_results.md`](readout/docs/submit_only_results.md)
+for a focused step-by-step guide.
+
 The experimental live HTML monitor opens by default while the optimizer runs.
 Set `use_live_html_plotter=False` to disable it. The monitor writes files under
-the same dated run folder used by `save_results()`. It has tabs for resonator,
+the same dated run folder used by the automatic run save. It has tabs for resonator,
 kernel, and IQ blob figures beside the current fidelity-vs-amplitude plot. The figure panel
 includes a slider for moving through acquired figures from earlier amplitudes,
-and the HTML file can be opened again after the run. After `save_results()`
+and the HTML file can be opened again after the run. After `run()`
 finishes, `live_readout_optimizer.html` is standalone: the plot images are
 embedded in the HTML file, so it can be shared without the image folders.
 
@@ -204,6 +253,12 @@ manager exposes a status API; otherwise it still prints how long it has been
 waiting.
 
 ## Saved Output
+
+By default, `ReadoutAmplitudeSweepWorkflow.run()` plots and saves completed
+non-submit-only runs automatically. The saved folder is available as
+`optimizer.run_dir`, and the generated figure is available as `optimizer.figure`.
+Set `auto_save_results=False` to restore the older manual `plot()` /
+`save_results()` flow.
 
 Runs are saved by date and time:
 
@@ -272,6 +327,7 @@ This continuation mode is useful for unattended scans, but it can hide systemati
 ```text
 readout/readout_amplitude_optimizer.py  # main optimizer workflow
 readout/readout_workflow.py             # single-amplitude fidelity workflow
+readout/scripts/                        # runnable one-off reports and lab scripts
 readout/utils/readout_scan_methods.py   # sweep / zoom-in / gradient / golden-section scans
 readout/utils/readout_scan_types.py     # scan method enum
 readout/utils/readout_sweep_analysis.py # analysis summary

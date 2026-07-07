@@ -38,6 +38,129 @@ def create_readout_run_dir(
     return run_dir
 
 
+def save_pending_readout_submission(
+    *,
+    run_dir: str | Path,
+    qubit_names: list[str],
+    amplitudes: list[float],
+    scan_method: str,
+    task_entries: list[dict[str, Any]],
+    profile: Any,
+    profile_path: str | Path | None = None,
+    optimizer_settings: Any = None,
+    workflow_settings: Any = None,
+) -> Path:
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for folder_name in ("results", "iq_blobs", "kernels", "resonator"):
+        (run_dir / folder_name).mkdir(parents=True, exist_ok=True)
+
+    created_at = datetime.now().isoformat(timespec="seconds")
+    run_key = run_dir.name
+    manifest = {
+        "schema_version": 1,
+        "run_status": "submitted_pending_results",
+        "run_key": run_key,
+        "run_dir": str(run_dir),
+        "created_at": created_at,
+        "scan_method": scan_method,
+        "qubits": list(qubit_names),
+        "amplitudes": [float(amplitude) for amplitude in amplitudes],
+        "task_count": len(task_entries),
+        "tasks": task_entries,
+    }
+    metadata = {
+        "schema_version": 1,
+        "run_status": "submitted_pending_results",
+        "run_key": run_key,
+        "run_dir": str(run_dir),
+        "created_at": created_at,
+        "scan_method": scan_method,
+        "qubits": list(qubit_names),
+        "amplitudes": [float(amplitude) for amplitude in amplitudes],
+        "optimizer_settings": _jsonable(optimizer_settings),
+        "workflow_settings": _jsonable(workflow_settings),
+    }
+
+    (run_dir / "task_manifest.json").write_text(
+        json.dumps(manifest, indent=2, default=str),
+        encoding="utf-8",
+    )
+    (run_dir / "metadata.json").write_text(
+        json.dumps(metadata, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    saver = ReadoutAmplitudeSweepSaver(
+        qubit_names=qubit_names,
+        amplitudes=[],
+        fidelities={qubit_name: [] for qubit_name in qubit_names},
+        results={},
+        profile=profile,
+        profile_path=profile_path,
+    )
+    saver._save_profile(run_dir)
+
+    report = [
+        "# Readout Amplitude Sweep Submission",
+        "",
+        f"Created at: {created_at}",
+        f"Run key: `{run_key}`",
+        f"Qubits: {', '.join(qubit_names)}",
+        f"Scan method: {scan_method}",
+        "Status: submitted_pending_results",
+        f"Submitted tasks: {len(task_entries)}",
+        "",
+        "Results have not been collected yet.",
+        "Use `ReadoutAmplitudeSweepWorkflow.collect_submitted_results(...)` with this folder.",
+        "",
+        "## Saved Files",
+        "",
+        "- `task_manifest.json`: submitted task IDs and sweep mapping.",
+        "- `metadata.json`: settings and fixed run metadata.",
+        "- `profile.json`: profile snapshot at submission time.",
+        "- `results/`: reserved for acquired results after collection.",
+    ]
+    (run_dir / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+    return run_dir
+
+
+def load_readout_task_manifest(run_dir: str | Path) -> dict[str, Any]:
+    manifest_path = Path(run_dir) / "task_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"No task manifest found at {manifest_path}")
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def update_readout_task_manifest(
+    run_dir: str | Path,
+    manifest: dict[str, Any],
+) -> None:
+    manifest_path = Path(run_dir) / "task_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+
+def _jsonable(value: Any) -> Any:
+    if value is None:
+        return None
+    if is_dataclass(value):
+        return asdict(value)
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if hasattr(value, "dict"):
+        return value.dict()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
 class ReadoutAmplitudeSweepSaver:
     def __init__(
         self,

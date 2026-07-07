@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-WORKBENCH_ROOT = Path(__file__).resolve().parents[2]
+WORKBENCH_ROOT = Path(__file__).resolve().parents[3]
 if str(WORKBENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKBENCH_ROOT))
 
@@ -17,7 +17,7 @@ from qratena.experiments.iq_blobs import IQBlobsHandler, IQBlobsSettings
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ExportationMethod, ResetType, SUPPORTED_PULSE_SHAPES
 
-from optimize.readout.run_all_qubit_iq_blobs import (
+from optimize.readout.scripts.run_all_qubit_iq_blobs import (
     count_measured,
     extract_fidelity_rows,
     make_run_dir,

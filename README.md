@@ -73,8 +73,8 @@ also runs Ruff and Gitleaks for teams that use `pre-commit`.
 Prefer explicit runner scripts over importing modules interactively. Examples:
 
 ```bash
-python3 run_with_workbench.py optimize/readout/run_all_qubits_report.py --help
-python3 run_with_workbench.py optimize/readout/run_all_qubit_iq_blobs.py --help
+python3 run_with_workbench.py optimize/readout/scripts/run_all_qubits_report.py --help
+python3 run_with_workbench.py optimize/readout/scripts/run_all_qubit_iq_blobs.py --help
 ```
 
 Reusable modules such as `optimize/readout/readout_workflow.py` and

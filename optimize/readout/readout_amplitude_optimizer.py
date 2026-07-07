@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -8,16 +7,17 @@ from workbench_bootstrap import setup_workbench_environment
 
 setup_workbench_environment()
 
-import numpy as np
 from matplotlib.figure import Figure
 from qratena.system.components_params.profile import Profile
-from qratena.system.components_params.reset_settings import ResetSettings
-from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ResetType
 
+from optimize.readout.optimizer_figures import ReadoutFigureMixin
+from optimize.readout.optimizer_metrics import ReadoutMetricsMixin
+from optimize.readout.optimizer_settings import ReadoutAmplitudeSweepSettings
+from optimize.readout.profile_access import ReadoutProfileAccessMixin
 from optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
-    ReadoutFidelityWorkflowSettings,
 )
+from optimize.readout.submitted_runs import SubmittedReadoutRunMixin
 from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
 from optimize.readout.utils.readout_scan_methods import scan_method_for
 from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
@@ -34,34 +34,12 @@ else:
     TaskSubmitterAsync = Any
 
 
-@dataclass(slots=True)
-class ReadoutAmplitudeSweepSettings:
-    amplitudes: Any
-    method: ReadoutScanMethod | str = ReadoutScanMethod.SWEEP
-    zoom_in_iterations: int = 3
-    zoom_in_shrink_factor: float = 0.5
-    gradient_max_iterations: int = 5
-    gradient_initial_step: float | None = None
-    gradient_min_step: float = 0.001
-    gradient_fidelity_tolerance: float = 0.01
-    golden_section_max_iterations: int = 8
-    golden_section_interval_tolerance: float = 0.001
-    fill_unfinished_on_interrupt: bool = True
-    unfinished_fidelity: float = 0.5
-    continue_on_measurement_error: bool = False
-    failed_measurement_fidelity: float = 0.5
-    profile_path: str | Path | None = None
-    show_progress: bool = True
-    use_live_html_plotter: bool = True
-    live_html_output_dir: str | Path = Path("data") / "readout_optimize"
-    live_html_refresh_seconds: float = 1.0
-    live_html_open_browser: bool = False
-    workflow_settings: ReadoutFidelityWorkflowSettings = field(
-        default_factory=ReadoutFidelityWorkflowSettings
-    )
-
-
-class ReadoutAmplitudeSweepWorkflow:
+class ReadoutAmplitudeSweepWorkflow(
+    SubmittedReadoutRunMixin,
+    ReadoutProfileAccessMixin,
+    ReadoutMetricsMixin,
+    ReadoutFigureMixin,
+):
     """Run ReadoutFidelityWorkflow for several readout amplitudes."""
 
     def __init__(
@@ -98,6 +76,8 @@ class ReadoutAmplitudeSweepWorkflow:
         self.kernel_figures: dict[float, list[Figure]] = {}
         self.resonator_figures: dict[float, list[Figure]] = {}
         self.measurement_errors: dict[float, str] = {}
+        self.submitted_amplitudes: list[float] = []
+        self.submitted_task_entries: list[dict[str, Any]] = []
         self.initial_amplitudes = self._readout_amplitudes()
         self.readout_lengths = self._readout_lengths()
         self.readout_frequencies = self._readout_frequencies()
@@ -106,12 +86,16 @@ class ReadoutAmplitudeSweepWorkflow:
         self.interrupt_reason: str | None = None
         self.live_plotter: ReadoutLiveHtmlPlotter | None = None
         self.run_dir: Path | None = None
+        self.figure: Figure | None = None
 
     def run(self) -> dict[float, dict[str, Any]]:
+        self._validate_execution_mode()
         self._prepare_profile_for_states()
         self.workflows = {}
         self.results = {}
         self.measured_amplitudes = []
+        self.submitted_amplitudes = []
+        self.submitted_task_entries = []
         self.fidelities = {qubit_name: [] for qubit_name in self.qubit_names}
         self.fidelity_errors = {qubit_name: [] for qubit_name in self.qubit_names}
         self.separations = {qubit_name: [] for qubit_name in self.qubit_names}
@@ -124,8 +108,16 @@ class ReadoutAmplitudeSweepWorkflow:
         self.interrupted = False
         self.interrupt_reason = None
         self.run_dir = None
+        self.figure = None
 
-        self._start_live_plotter()
+        if self.settings.submit_only:
+            self.run_dir = create_readout_run_dir(
+                output_dir=self.settings.live_html_output_dir,
+                scan_method=str(ReadoutScanMethod(self.settings.method).value),
+                qubit_names=self.qubit_names,
+            )
+        else:
+            self._start_live_plotter()
         try:
             scan_method_for(self).run()
         except (KeyboardInterrupt, EOFError) as error:
@@ -137,10 +129,30 @@ class ReadoutAmplitudeSweepWorkflow:
             self._update_live_plotter()
             print("\nReadout optimization interrupted; padded unfinished fidelities.")
         finally:
-            self._finish_live_plotter()
+            if self.settings.submit_only:
+                self._save_pending_submission()
+            else:
+                self._finish_live_plotter()
 
-        self._finish_progress(len(self.measured_amplitudes))
+        completed_items = (
+            self.submitted_amplitudes
+            if self.settings.submit_only
+            else self.measured_amplitudes
+        )
+        completed = len(completed_items)
+        self._finish_progress(completed)
+        self._auto_save_after_run()
         return self.results
+
+    def _validate_execution_mode(self) -> None:
+        if not self.settings.submit_only:
+            return
+
+        method = ReadoutScanMethod(self.settings.method)
+        if method != ReadoutScanMethod.SWEEP:
+            raise ValueError("submit_only is supported only for sweep mode.")
+        if self.settings.workflow_settings.do_emulation:
+            raise ValueError("submit_only requires a task manager; disable do_emulation.")
 
     def _prepare_profile_for_states(self) -> None:
         if "f" not in self.settings.workflow_settings.states:
@@ -189,6 +201,7 @@ class ReadoutAmplitudeSweepWorkflow:
         self,
         output_dir: str | Path = Path("data") / "readout_optimize",
         figure: Figure | None = None,
+        run_dir: str | Path | None = None,
     ) -> str:
         if not self.measured_amplitudes:
             raise RuntimeError("Run the amplitude sweep before saving results.")
@@ -220,16 +233,33 @@ class ReadoutAmplitudeSweepWorkflow:
         run_dir = saver.save(
             output_dir=output_dir,
             figure=figure,
-            run_dir=self.run_dir,
+            run_dir=run_dir or self.run_dir,
         )
         if self.live_plotter is not None:
             self.live_plotter.write_standalone_html(status="saved")
         print(f"Saved readout optimizer results to {Path(run_dir).resolve()}")
         return run_dir
 
+    def _auto_save_after_run(self) -> None:
+        if self.settings.submit_only or not self.settings.auto_save_results:
+            return
+        if not self.measured_amplitudes:
+            return
+
+        figure = self.plot()
+        self.figure = figure
+        self.save_results(
+            output_dir=self.settings.live_html_output_dir,
+            figure=figure,
+        )
+        if self.settings.close_auto_saved_figure:
+            import matplotlib.pyplot as plt
+
+            plt.close(figure)
+
     def _measure_amplitude(self, amplitude: float) -> float:
         amplitude = float(amplitude)
-        if amplitude in self.results:
+        if amplitude in self.results and not self.settings.submit_only:
             return self._score_result(self.results[amplitude])
 
         self._set_readout_amplitude(amplitude)
@@ -238,7 +268,7 @@ class ReadoutAmplitudeSweepWorkflow:
             qubit_names=self.qubit_names,
             profile=self.profile,
             task_manager=self.task_manager,
-            settings=self.settings.workflow_settings,
+            settings=self._workflow_settings_for_measurement(),
         )
 
         self.workflows[amplitude] = workflow
@@ -252,6 +282,14 @@ class ReadoutAmplitudeSweepWorkflow:
 
             return self._record_failed_measurement(amplitude, error)
 
+        if self.settings.submit_only:
+            self._record_submitted_tasks(amplitude, workflow)
+            self.results[amplitude] = {
+                "status": "submitted_pending_results",
+                "tasks": list(workflow.submitted_tasks),
+            }
+            return float(self.settings.failed_measurement_fidelity)
+
         self.results[amplitude] = result
         self.measured_amplitudes.append(amplitude)
         self._record_fidelities(result)
@@ -264,13 +302,263 @@ class ReadoutAmplitudeSweepWorkflow:
 
         return self._score_result(result)
 
+    def _workflow_settings_for_measurement(self) -> ReadoutFidelityWorkflowSettings:
+        if not self.settings.submit_only:
+            return self.settings.workflow_settings
+
+        return replace(
+            self.settings.workflow_settings,
+            task_execution_mode="submit_only",
+        )
+
+    def _record_submitted_tasks(
+        self,
+        amplitude: float,
+        workflow: ReadoutFidelityWorkflow,
+    ) -> None:
+        amplitude_index = len(self.submitted_amplitudes)
+        self.submitted_amplitudes.append(float(amplitude))
+        for task_index, task in enumerate(workflow.submitted_tasks):
+            task_entry = dict(task)
+            task_entry.update(
+                {
+                    "amplitude": float(amplitude),
+                    "sweep_index": amplitude_index,
+                    "sweep_parameters": {"readout_amplitude": float(amplitude)},
+                    "task_key": self._submitted_task_key(
+                        amplitude_index=amplitude_index,
+                        amplitude=amplitude,
+                        task=task,
+                        task_index=task_index,
+                    ),
+                }
+            )
+            self.submitted_task_entries.append(task_entry)
+
+    def _submitted_task_key(
+        self,
+        *,
+        amplitude_index: int,
+        amplitude: float,
+        task: dict[str, Any],
+        task_index: int,
+    ) -> str:
+        qubits = "+".join(task.get("qubit_names", [])) or "no_qubits"
+        node = task.get("node", "task")
+        return (
+            f"sweep/{amplitude_index:04d}/"
+            f"readout_amplitude={amplitude:.6g}/{node}/{qubits}/{task_index:02d}"
+        )
+
+    def _save_pending_submission(self) -> None:
+        if self.run_dir is None:
+            return
+
+        save_pending_readout_submission(
+            run_dir=self.run_dir,
+            qubit_names=self.qubit_names,
+            amplitudes=[float(amplitude) for amplitude in self.settings.amplitudes],
+            scan_method=str(ReadoutScanMethod(self.settings.method).value),
+            task_entries=self.submitted_task_entries,
+            profile=self.profile,
+            profile_path=self.settings.profile_path,
+            optimizer_settings=self.settings,
+            workflow_settings=self.settings.workflow_settings,
+        )
+        print(f"Saved pending readout optimizer submission to {self.run_dir.resolve()}")
+
+    def collect_submitted_results(
+        self,
+        run_dir: str | Path,
+        *,
+        save_results: bool = True,
+        wait: bool = True,
+    ) -> dict[float, dict[str, Any]] | dict[str, Any]:
+        if not wait:
+            return self.check_submitted_results(run_dir)
+
+        manifest = load_readout_task_manifest(run_dir)
+        task_entries = list(manifest.get("tasks", []))
+        tasks_by_amplitude = self._tasks_by_amplitude(task_entries)
+
+        self._prepare_profile_for_states()
+        self.workflows = {}
+        self.results = {}
+        self.measured_amplitudes = []
+        self.fidelities = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.fidelity_errors = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.separations = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.roundnesses = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.resonator_frequencies = {qubit_name: [] for qubit_name in self.qubit_names}
+        self.iq_blob_figures = {}
+        self.kernel_figures = {}
+        self.resonator_figures = {}
+        self.measurement_errors = {}
+        self.run_dir = Path(run_dir)
+
+        for amplitude in sorted(tasks_by_amplitude):
+            self._set_readout_amplitude(amplitude)
+            workflow = ReadoutFidelityWorkflow(
+                qubit_names=self.qubit_names,
+                profile=self.profile,
+                task_manager=self.task_manager,
+                settings=replace(
+                    self.settings.workflow_settings,
+                    task_execution_mode="wait",
+                ),
+            )
+            result = workflow.collect_submitted_results(tasks_by_amplitude[amplitude])
+            self.workflows[amplitude] = workflow
+            self.results[amplitude] = result
+            self.measured_amplitudes.append(amplitude)
+            self._record_fidelities(result)
+            self._record_resonator_frequencies(workflow)
+            self.readout_frequencies = self._readout_frequencies()
+            self._record_iq_blob_figures(amplitude, workflow)
+            self._record_kernel_figures(amplitude, workflow)
+            self._record_resonator_figures(amplitude, workflow)
+
+        manifest["run_status"] = "complete"
+        manifest["collected_at"] = datetime.now().isoformat(timespec="seconds")
+        for task in manifest.get("tasks", []):
+            task["result_status"] = "collected"
+        update_readout_task_manifest(run_dir, manifest)
+
+        if save_results:
+            self.save_results(output_dir=Path(run_dir).parent, run_dir=run_dir)
+
+        return self.results
+
+    def check_submitted_results(self, run_dir: str | Path) -> dict[str, Any]:
+        """Check saved task IDs without waiting for results."""
+        manifest = load_readout_task_manifest(run_dir)
+        tasks = list(manifest.get("tasks", []))
+        counts = {
+            "completed": 0,
+            "queued": 0,
+            "running": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "unknown": 0,
+        }
+        pending_tasks = []
+        failed_tasks = []
+        completed_tasks = []
+
+        checked_at = datetime.now().isoformat(timespec="seconds")
+        for task in tasks:
+            task_id = str(task["task_id"])
+            status = self._submitted_task_status(task_id)
+            task["task_status"] = status
+            task["checked_at"] = checked_at
+
+            if status in counts:
+                counts[status] += 1
+            else:
+                counts["unknown"] += 1
+
+            if status == "completed":
+                task["result_status"] = "ready"
+                completed_tasks.append(task)
+            elif status in ("failed", "cancelled"):
+                task["result_status"] = status
+                failed_tasks.append(task)
+            else:
+                task["result_status"] = "pending"
+                pending_tasks.append(task)
+
+        total = len(tasks)
+        ready_to_collect = total > 0 and len(completed_tasks) == total
+        manifest["last_checked_at"] = checked_at
+        manifest["run_status"] = (
+            "ready_to_collect"
+            if ready_to_collect
+            else "submitted_pending_results"
+        )
+        update_readout_task_manifest(run_dir, manifest)
+
+        summary = {
+            "run_dir": str(Path(run_dir)),
+            "ready_to_collect": ready_to_collect,
+            "total": total,
+            "counts": counts,
+            "completed": len(completed_tasks),
+            "pending": len(pending_tasks),
+            "failed": len(failed_tasks),
+            "pending_task_keys": [task.get("task_key") for task in pending_tasks],
+            "failed_task_keys": [task.get("task_key") for task in failed_tasks],
+            "message": self._submitted_results_status_message(
+                ready_to_collect=ready_to_collect,
+                pending_count=len(pending_tasks),
+                failed_count=len(failed_tasks),
+            ),
+        }
+        print(summary["message"])
+        return summary
+
+    def _submitted_task_status(self, task_id: str) -> str:
+        get_status = getattr(self.task_manager, "get_status", None)
+        if callable(get_status):
+            try:
+                status = get_status(task_id)
+            except Exception as error:
+                return f"unknown:{type(error).__name__}"
+            return self._normalize_task_status(status)
+
+        is_done = getattr(self.task_manager, "is_done", None)
+        if callable(is_done):
+            try:
+                return "completed" if is_done(task_id) else "running"
+            except Exception as error:
+                return f"unknown:{type(error).__name__}"
+
+        return "unknown"
+
+    def _normalize_task_status(self, status: Any) -> str:
+        value = getattr(status, "value", status)
+        return str(value).lower()
+
+    def _submitted_results_status_message(
+        self,
+        *,
+        ready_to_collect: bool,
+        pending_count: int,
+        failed_count: int,
+    ) -> str:
+        if ready_to_collect:
+            return "All submitted readout tasks are complete; results are ready to collect."
+        if failed_count:
+            return (
+                f"{failed_count} submitted readout task(s) failed or were cancelled; "
+                "inspect task_manifest.json before collecting."
+            )
+        return (
+            f"{pending_count} submitted readout task(s) are still queued/running; "
+            "wait before collecting results."
+        )
+
+    def _tasks_by_amplitude(
+        self,
+        task_entries: list[dict[str, Any]],
+    ) -> dict[float, list[dict[str, Any]]]:
+        tasks_by_amplitude: dict[float, list[dict[str, Any]]] = {}
+        for entry in task_entries:
+            amplitude = float(entry["amplitude"])
+            tasks_by_amplitude.setdefault(amplitude, []).append(entry)
+        return tasks_by_amplitude
+
     def _score_result(self, result: dict[str, Any]) -> float:
         if "iq_blobs" not in result:
             return float(self.settings.failed_measurement_fidelity)
 
         iq_results = result["iq_blobs"]
         return float(
-            np.mean([iq_results[qubit_name]["readout_fidelity"] for qubit_name in self.qubit_names])
+            np.mean(
+                [
+                    iq_results[qubit_name]["readout_fidelity"]
+                    for qubit_name in self.qubit_names
+                ]
+            )
         )
 
     def _record_failed_measurement(
@@ -451,14 +739,15 @@ class ReadoutAmplitudeSweepWorkflow:
         self,
         workflow: ReadoutFidelityWorkflow,
     ) -> None:
-        handler = workflow.resonator_handler
+        handlers = self._workflow_handlers(workflow, "resonator")
         for qubit_name in self.qubit_names:
             frequency = None
-            if handler is not None:
+            for handler in handlers:
                 handler_data = getattr(handler, "data", {}) or {}
                 qubit_data = handler_data.get(qubit_name, {}) or {}
                 if "optimal_resonance_freq" in qubit_data:
                     frequency = float(qubit_data["optimal_resonance_freq"])
+                    break
             self.resonator_frequencies[qubit_name].append(frequency)
 
     def _first_metric_value(
@@ -489,11 +778,7 @@ class ReadoutAmplitudeSweepWorkflow:
         amplitude: float,
         workflow: ReadoutFidelityWorkflow,
     ) -> None:
-        handler = workflow.kernel_handler
-        if handler is None:
-            return
-
-        figures = self._handler_figures(handler)
+        figures = self._workflow_figures(workflow, "kernel")
         if figures:
             self.kernel_figures[float(amplitude)] = figures
 
@@ -502,13 +787,32 @@ class ReadoutAmplitudeSweepWorkflow:
         amplitude: float,
         workflow: ReadoutFidelityWorkflow,
     ) -> None:
-        handler = workflow.resonator_handler
-        if handler is None:
-            return
-
-        figures = self._handler_figures(handler)
+        figures = self._workflow_figures(workflow, "resonator")
         if figures:
             self.resonator_figures[float(amplitude)] = figures
+
+    def _workflow_handlers(
+        self,
+        workflow: ReadoutFidelityWorkflow,
+        experiment: str,
+    ) -> list[Any]:
+        plural_name = f"{experiment}_handlers"
+        handlers = list(getattr(workflow, plural_name, []) or [])
+        if handlers:
+            return handlers
+
+        handler = getattr(workflow, f"{experiment}_handler", None)
+        return [handler] if handler is not None else []
+
+    def _workflow_figures(
+        self,
+        workflow: ReadoutFidelityWorkflow,
+        experiment: str,
+    ) -> list[Figure]:
+        figures = []
+        for handler in self._workflow_handlers(workflow, experiment):
+            figures.extend(self._handler_figures(handler))
+        return self._unique_figures(figures)
 
     def _workflow_label(self) -> str:
         enabled_nodes = []
@@ -563,6 +867,9 @@ class ReadoutAmplitudeSweepWorkflow:
         figure = getattr(handler, "fig", None)
         figures.extend(self._extract_figures(figure))
 
+        return self._unique_figures(figures)
+
+    def _unique_figures(self, figures: list[Figure]) -> list[Figure]:
         unique_figures = []
         seen_ids = set()
         for figure in figures:
@@ -652,6 +959,7 @@ if __name__ == "__main__":
         run_iq_blobs=True,
         do_plotting=False,
         show_handler_output=False,
+        low_priority_tasks=True,
         states=["g", "e"],
         reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
     )
@@ -661,10 +969,11 @@ if __name__ == "__main__":
         method=ReadoutScanMethod.SWEEP,
         use_live_html_plotter=False,
         workflow_settings=workflow_settings,
+        submit_only=True,
     )
 
     optimizer = ReadoutAmplitudeSweepWorkflow(
-        qubit_names=["q5"],
+        qubit_names=["q6"],
         profile=profile,
         task_manager=task_manager,
         settings=optimizer_settings,
@@ -674,3 +983,6 @@ if __name__ == "__main__":
     figure = optimizer.plot()
     run_dir = optimizer.save_results(figure=figure)
 
+
+    print(run_dir)
+    
