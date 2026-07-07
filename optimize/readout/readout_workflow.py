@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 import threading
 from dataclasses import dataclass, field
@@ -18,6 +19,10 @@ if __name__ == "__main__" and __package__ in (None, ""):
 
     setup_workbench_environment()
 
+from laboneq.core.types.enums.acquisition_type import AcquisitionType
+from laboneq.core.types.enums.averaging_mode import AveragingMode
+from laboneq.dsl.session import Session
+from laboneq.simple import from_json
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from qratena.experiments.base_experiment import ExperimentSettings
@@ -35,11 +40,6 @@ from qratena.util.enums import (
     UpdateParamsMethod,
 )
 from qratena.util.sweeps_utils import MidIntervalArray
-
-from laboneq.core.types.enums.acquisition_type import AcquisitionType
-from laboneq.core.types.enums.averaging_mode import AveragingMode
-from laboneq.dsl.session import Session
-from laboneq.simple import from_json
 
 if TYPE_CHECKING:
     from qigeon import TaskSubmitterAsync
@@ -114,9 +114,7 @@ class ReadoutFidelityWorkflow:
             )
 
         self.timings["total"] = perf_counter() - workflow_start
-        self._timing_print(
-            f"workflow finished in {self._format_duration(self.timings['total'])}"
-        )
+        self._timing_print(f"workflow finished in {self._format_duration(self.timings['total'])}")
         return self.results
 
     def run_resonator_node(self) -> Any:
@@ -151,8 +149,7 @@ class ReadoutFidelityWorkflow:
     def _validate_kernel_states(self) -> None:
         if self.settings.states not in (["g", "e"], ["g", "e", "f"]):
             raise ValueError(
-                "Kernel traces calculation states must be ['g', 'e'] "
-                "or ['g', 'e', 'f']."
+                "Kernel traces calculation states must be ['g', 'e'] or ['g', 'e', 'f']."
             )
 
     def run_iq_blobs_node(self) -> Any:
@@ -209,8 +206,74 @@ class ReadoutFidelityWorkflow:
         Implement this once in BaseExperimentHandler if possible.
         """
         with self._optional_output_suppression():
-            handler.experiment_result = from_json(result.raw_data)
+            handler.experiment_result = self._deserialize_laboneq_result(result.raw_data)
         self._analyze_handler_result(handler)
+
+    def _deserialize_laboneq_result(self, raw_data: Any) -> Any:
+        try:
+            return from_json(raw_data)
+        except TypeError:
+            fixed_raw_data, fixed_count = self._fill_missing_acquired_data_parts(raw_data)
+            if fixed_count == 0:
+                raise
+
+            try:
+                return from_json(fixed_raw_data)
+            except Exception as retry_error:
+                raise RuntimeError(
+                    "LabOneQ result deserialization failed after replacing "
+                    f"{fixed_count} missing acquired-result real/imag component(s)."
+                ) from retry_error
+
+    def _fill_missing_acquired_data_parts(self, raw_data: Any) -> tuple[Any, int]:
+        decoded_data = self._decode_raw_json(raw_data)
+        fixed_count = self._fill_missing_acquired_data_parts_in_place(decoded_data)
+        if fixed_count == 0:
+            return raw_data, 0
+
+        encoded_data = json.dumps(decoded_data)
+        if isinstance(raw_data, bytes):
+            return encoded_data.encode(), fixed_count
+        return encoded_data, fixed_count
+
+    def _decode_raw_json(self, raw_data: Any) -> Any:
+        if isinstance(raw_data, memoryview):
+            raw_data = raw_data.tobytes()
+        return json.loads(raw_data)
+
+    def _fill_missing_acquired_data_parts_in_place(self, value: Any) -> int:
+        if isinstance(value, dict):
+            fixed_count = self._fill_acquired_result_data_part(value)
+            for item in value.values():
+                fixed_count += self._fill_missing_acquired_data_parts_in_place(item)
+            return fixed_count
+
+        if isinstance(value, list):
+            return sum(self._fill_missing_acquired_data_parts_in_place(item) for item in value)
+
+        return 0
+
+    def _fill_acquired_result_data_part(self, value: dict[str, Any]) -> int:
+        if "data.real" not in value or "data.imag" not in value:
+            return 0
+
+        fixed_count = 0
+        if value["data.real"] is None and value["data.imag"] is not None:
+            value["data.real"] = self._zero_like_json_number_tree(value["data.imag"])
+            fixed_count += 1
+
+        if value["data.imag"] is None and value["data.real"] is not None:
+            value["data.imag"] = self._zero_like_json_number_tree(value["data.real"])
+            fixed_count += 1
+
+        return fixed_count
+
+    def _zero_like_json_number_tree(self, value: Any) -> Any:
+        if isinstance(value, list):
+            return [self._zero_like_json_number_tree(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._zero_like_json_number_tree(item) for key, item in value.items()}
+        return 0.0
 
     def _analyze_handler_result(self, handler: ExperimentHandler) -> None:
         existing_figures = set(plt.get_fignums())
@@ -264,9 +327,7 @@ class ReadoutFidelityWorkflow:
         if isinstance(plot_result, Figure):
             figures = [plot_result]
         elif isinstance(plot_result, (list, tuple)):
-            figures = [
-                figure for figure in plot_result if isinstance(figure, Figure)
-            ]
+            figures = [figure for figure in plot_result if isinstance(figure, Figure)]
         else:
             figures = self._handler_figures(handler)
 
@@ -277,8 +338,7 @@ class ReadoutFidelityWorkflow:
     def _handler_figures(self, handler: ExperimentHandler) -> list[Figure]:
         figures = []
         for attribute_name in ("workflow_figures", "figs", "figures"):
-            figures.extend(self._extract_figures(
-                getattr(handler, attribute_name, None)))
+            figures.extend(self._extract_figures(getattr(handler, attribute_name, None)))
 
         figure = getattr(handler, "fig", None)
         figures.extend(self._extract_figures(figure))
@@ -321,15 +381,12 @@ class ReadoutFidelityWorkflow:
         except Exception:
             elapsed = perf_counter() - start
             self.timings[name] = elapsed
-            self._timing_print(
-                f"{name} failed after {self._format_duration(elapsed)}"
-            )
+            self._timing_print(f"{name} failed after {self._format_duration(elapsed)}")
             raise
 
         elapsed = perf_counter() - start
         self.timings[name] = elapsed
-        self._timing_print(
-            f"{name} finished in {self._format_duration(elapsed)}")
+        self._timing_print(f"{name} finished in {self._format_duration(elapsed)}")
         return result
 
     def _wait_for_task(self, task_id: Any, label: str) -> Any:
@@ -351,8 +408,7 @@ class ReadoutFidelityWorkflow:
             final_status = self._task_status(task_id)
             status_suffix = f" final status: {final_status}" if final_status else ""
             self._timing_print(
-                f"{label} wait finished in {self._format_duration(elapsed)}"
-                f"{status_suffix}"
+                f"{label} wait finished in {self._format_duration(elapsed)}{status_suffix}"
             )
 
     def _start_status_polling(
@@ -373,8 +429,7 @@ class ReadoutFidelityWorkflow:
                     self._timing_print(f"{label} status: {status}")
                     last_status = status
                 else:
-                    elapsed = self._format_duration(
-                        perf_counter() - wait_start)
+                    elapsed = self._format_duration(perf_counter() - wait_start)
                     self._timing_print(f"{label} waiting for {elapsed}")
 
         wait_start = perf_counter()
@@ -453,13 +508,8 @@ class ReadoutFidelityWorkflow:
 
     def _update_profile_from_resonator(self, handler) -> None:
         for qubit_name in self.qubit_names:
-
-            optimal_frequency = handler.data[qubit_name][
-                "optimal_resonance_freq"
-            ]
-            self.profile.qubits[
-                qubit_name
-            ].readout_resonator_frequency.value = optimal_frequency
+            optimal_frequency = handler.data[qubit_name]["optimal_resonance_freq"]
+            self.profile.qubits[qubit_name].readout_resonator_frequency.value = optimal_frequency
 
     def _build_resonator_handler(self):
         settings = ExperimentSettings(
@@ -473,8 +523,9 @@ class ReadoutFidelityWorkflow:
             # do_plotting=self.settings.do_plotting,
         )
         handler = ResonatorSpectroscopyHandler(
-            x_resonator_frequency_arrays=[MidIntervalArray(
-                mid_point=None, interval=150e6, num_points=120)],
+            x_resonator_frequency_arrays=[
+                MidIntervalArray(mid_point=None, interval=150e6, num_points=120)
+            ],
             long_drive_pulse=False,
             qubit_names=[self.qubit_names[0]],
             settings=settings,
@@ -496,7 +547,6 @@ class ReadoutFidelityWorkflow:
             # configure_logging=self.settings.show_handler_output,
             do_emulation=True,
             # do_plotting=self.settings.do_plotting,
-
         )
         handler = KernelTracesCalculationHandler(
             qubit_names=[self.qubit_names[0]],
@@ -515,16 +565,14 @@ class ReadoutFidelityWorkflow:
             averaging_mode=AveragingMode.SINGLE_SHOT,
             exportation_method=ExportationMethod.NONE,
             pulse_shape=SUPPORTED_PULSE_SHAPES.const,
-            # configure_logging=self.settings.show_handler_output,
             reset=self.settings.reset,
             do_emulation=True,
-            # do_plotting=self.settings.do_plotting,
-            states=len(self.settings.states),
         )
 
         handler = IQBlobsHandler(
             qubit_names=self.qubit_names,
             settings=settings,
+            states=self.settings.states,
         )
         handler.configuration_params = self.profile
         handler.platform = create_platform(self.profile)
@@ -538,12 +586,17 @@ class ReadoutFidelityWorkflow:
 def main() -> None:
     from resources.load_profile import load_profile, load_task_manager
 
-    profile_name = "main"
+    profile_name = "main_asaf"
     qubit_names = ["q3"]
+
     states = ["g", "e"]
+
     do_emulation = False  # Set to True to run the workflow without a task manager
+    show_plots = True
 
     profile = load_profile(profile_name)
+    profile.ensure_pi_ef_pulse_for_all_qubits()
+
     task_manager = object() if do_emulation else load_task_manager()
 
     settings = ReadoutFidelityWorkflowSettings(
@@ -552,7 +605,7 @@ def main() -> None:
         run_resonator=False,
         run_kernels=True,
         run_iq_blobs=True,
-        do_plotting=False,
+        do_plotting=show_plots,
         show_handler_output=True,
         reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
         states=states,
@@ -565,6 +618,8 @@ def main() -> None:
     )
     results = workflow.run()
     print(f"Readout workflow result keys: {', '.join(results)}")
+    if show_plots:
+        plt.show()
 
 
 if __name__ == "__main__":
