@@ -28,6 +28,20 @@ class ReadoutAmplitudeSweepPlotter:
         self.selected_amplitude: float | None = None
 
     def plot(self) -> Figure:
+        amplitudes = [float(amplitude) for amplitude in self.amplitudes]
+        sorted_indices = np.argsort(amplitudes)
+        sorted_amplitudes = [amplitudes[index] for index in sorted_indices]
+
+        if len(self.qubit_names) == 1:
+            return self._plot_single_figure(sorted_amplitudes, sorted_indices)
+
+        return self._plot_qubit_panels(sorted_amplitudes, sorted_indices)
+
+    def _plot_single_figure(
+        self,
+        sorted_amplitudes: list[float],
+        sorted_indices: np.ndarray,
+    ) -> Figure:
         fig, (fidelity_ax, separation_ax) = plt.subplots(
             2,
             1,
@@ -35,227 +49,329 @@ class ReadoutAmplitudeSweepPlotter:
             figsize=(7.5, 7.0),
             gridspec_kw={"height_ratios": [2, 1]},
         )
-        amplitudes = [float(amplitude) for amplitude in self.amplitudes]
-        sorted_indices = np.argsort(amplitudes)
-        sorted_amplitudes = [amplitudes[index] for index in sorted_indices]
-        selected_label_added = False
+        self._plot_qubit_sweep(
+            fidelity_ax,
+            separation_ax,
+            qubit_name=self.qubit_names[0],
+            sorted_amplitudes=sorted_amplitudes,
+            sorted_indices=sorted_indices,
+            include_qubit_in_label=True,
+        )
+        self._plot_roundness(
+            fidelity_ax,
+            self.qubit_names[0],
+            sorted_amplitudes,
+            sorted_indices,
+        )
+        self._format_axes(
+            fidelity_ax,
+            separation_ax,
+            title=self._title(),
+            show_xlabel=True,
+        )
+        fig.tight_layout()
+        return fig
 
-        for qubit_name in self.qubit_names:
-            measured_fidelities = [
-                float(value) for value in self.fidelities[qubit_name]
-            ]
-            fidelity_values = [
-                measured_fidelities[index] for index in sorted_indices
-            ]
-            best_index = int(np.argmax(fidelity_values))
-            best_amplitude = sorted_amplitudes[best_index]
-            best_fidelity = fidelity_values[best_index]
+    def _plot_qubit_panels(
+        self,
+        sorted_amplitudes: list[float],
+        sorted_indices: np.ndarray,
+    ) -> Figure:
+        qubit_count = len(self.qubit_names)
+        fig, axes = plt.subplots(
+            qubit_count,
+            2,
+            sharex=True,
+            figsize=(12.0, max(4.2, 3.2 * qubit_count)),
+            gridspec_kw={"width_ratios": [2, 1]},
+            squeeze=False,
+        )
+        fig.suptitle(self._title(), fontsize=13)
 
-            line = fidelity_ax.plot(
+        for row_index, qubit_name in enumerate(self.qubit_names):
+            fidelity_ax = axes[row_index][0]
+            separation_ax = axes[row_index][1]
+            self._plot_qubit_sweep(
+                fidelity_ax,
+                separation_ax,
+                qubit_name=qubit_name,
+                sorted_amplitudes=sorted_amplitudes,
+                sorted_indices=sorted_indices,
+                include_qubit_in_label=False,
+            )
+            self._plot_roundness(
+                fidelity_ax,
+                qubit_name,
                 sorted_amplitudes,
-                fidelity_values,
-                marker="o",
-                linewidth=2.4,
-                label=f"Qubit {qubit_name}",
-                zorder=5,
-            )[0]
-            color = line.get_color()
-            fidelity_errors = self._sorted_optional_values(
-                self.fidelity_errors.get(qubit_name, []),
                 sorted_indices,
             )
-            if any(error is not None for error in fidelity_errors):
-                lower, upper = self._error_band(fidelity_values, fidelity_errors)
-                fidelity_ax.fill_between(
-                    sorted_amplitudes,
-                    lower,
-                    upper,
-                    color=color,
-                    alpha=0.18,
-                    linewidth=0,
-                )
-                fidelity_ax.errorbar(
-                    sorted_amplitudes,
-                    fidelity_values,
-                    yerr=[0.0 if error is None else error for error in fidelity_errors],
-                    fmt="none",
-                    ecolor=color,
-                    alpha=0.45,
-                    capsize=3,
-                    linewidth=0.8,
-                )
+            title = self._qubit_title(qubit_name)
+            self._format_axes(
+                fidelity_ax,
+                separation_ax,
+                title=title,
+                show_xlabel=row_index == qubit_count - 1,
+            )
 
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+        return fig
+
+    def _plot_qubit_sweep(
+        self,
+        fidelity_ax,
+        separation_ax,
+        *,
+        qubit_name: str,
+        sorted_amplitudes: list[float],
+        sorted_indices: np.ndarray,
+        include_qubit_in_label: bool,
+    ) -> None:
+        measured_fidelities = [float(value) for value in self.fidelities[qubit_name]]
+        fidelity_values = [measured_fidelities[index] for index in sorted_indices]
+        best_index = int(np.argmax(fidelity_values))
+        best_amplitude = sorted_amplitudes[best_index]
+        best_fidelity = fidelity_values[best_index]
+        qubit_label = f" {qubit_name}" if include_qubit_in_label else ""
+
+        line = fidelity_ax.plot(
+            sorted_amplitudes,
+            fidelity_values,
+            marker="o",
+            linewidth=2.4,
+            label=f"Qubit {qubit_name}" if include_qubit_in_label else "Fidelity",
+            zorder=5,
+        )[0]
+        color = line.get_color()
+        fidelity_errors = self._sorted_optional_values(
+            self.fidelity_errors.get(qubit_name, []),
+            sorted_indices,
+        )
+        if any(error is not None for error in fidelity_errors):
+            lower, upper = self._error_band(fidelity_values, fidelity_errors)
+            fidelity_ax.fill_between(
+                sorted_amplitudes,
+                lower,
+                upper,
+                color=color,
+                alpha=0.18,
+                linewidth=0,
+            )
+            fidelity_ax.errorbar(
+                sorted_amplitudes,
+                fidelity_values,
+                yerr=[0.0 if error is None else error for error in fidelity_errors],
+                fmt="none",
+                ecolor=color,
+                alpha=0.45,
+                capsize=3,
+                linewidth=0.8,
+            )
+
+        fidelity_ax.scatter(
+            [best_amplitude],
+            [best_fidelity],
+            color="green",
+            marker="*",
+            s=130,
+            zorder=4,
+        )
+        fidelity_ax.axvline(
+            best_amplitude,
+            color="green",
+            linestyle=":",
+            linewidth=1.8,
+            label=self._marker_label(
+                f"Best{qubit_label}",
+                best_amplitude,
+                best_fidelity,
+                approximate=False,
+            ),
+        )
+
+        initial_amplitude = self.initial_amplitudes.get(qubit_name)
+        if initial_amplitude is not None:
+            initial_fidelity = self._fidelity_at_amplitude(
+                initial_amplitude,
+                sorted_amplitudes,
+                fidelity_values,
+            )
             fidelity_ax.scatter(
-                [best_amplitude],
-                [best_fidelity],
-                color="green",
-                marker="*",
-                s=130,
+                [initial_amplitude],
+                [initial_fidelity],
+                color="red",
+                marker="o",
+                s=70,
                 zorder=4,
             )
             fidelity_ax.axvline(
-                best_amplitude,
-                color="green",
-                linestyle=":",
-                linewidth=1.8,
+                initial_amplitude,
+                color="red",
+                linestyle="--",
+                linewidth=1.5,
                 label=self._marker_label(
-                    f"Best {qubit_name}",
-                    best_amplitude,
-                    best_fidelity,
-                    approximate=False,
+                    f"Init{qubit_label}",
+                    initial_amplitude,
+                    initial_fidelity,
+                    approximate=True,
                 ),
             )
 
-            initial_amplitude = self.initial_amplitudes.get(qubit_name)
-            if initial_amplitude is not None:
-                initial_fidelity = self._fidelity_at_amplitude(
-                    initial_amplitude,
-                    sorted_amplitudes,
-                    fidelity_values,
-                )
-                fidelity_ax.scatter(
-                    [initial_amplitude],
-                    [initial_fidelity],
-                    color="red",
-                    marker="o",
-                    s=70,
-                    zorder=4,
-                )
-                fidelity_ax.axvline(
-                    initial_amplitude,
-                    color="red",
-                    linestyle="--",
-                    linewidth=1.5,
-                    label=self._marker_label(
-                        f"Init {qubit_name}",
-                        initial_amplitude,
-                        initial_fidelity,
-                        approximate=True,
-                    ),
-                )
-
-            if self.selected_amplitude is not None:
-                selected_amplitude = float(self.selected_amplitude)
-                selected_fidelity = self._fidelity_at_amplitude(
-                    selected_amplitude,
-                    sorted_amplitudes,
-                    fidelity_values,
-                )
-                selected_label = None
-                if not selected_label_added:
-                    selected_label = f"Selected A={selected_amplitude:.4g}"
-                    selected_label_added = True
-                self._plot_selected_point(
-                    fidelity_ax,
-                    selected_amplitude,
-                    selected_fidelity,
-                    size=175,
-                    label=selected_label,
-                )
-
-            separation_values = self._sorted_optional_values(
-                self.separations.get(qubit_name, []),
-                sorted_indices,
+        if self.selected_amplitude is not None:
+            selected_amplitude = float(self.selected_amplitude)
+            selected_fidelity = self._fidelity_at_amplitude(
+                selected_amplitude,
+                sorted_amplitudes,
+                fidelity_values,
             )
-            if any(value is not None for value in separation_values):
-                numeric_separations = [
-                    np.nan if value is None else value for value in separation_values
-                ]
-                separation_ax.plot(
-                    sorted_amplitudes,
-                    numeric_separations,
-                    marker="o",
-                    color=color,
-                    label=f"Qubit {qubit_name}",
-                )
-                best_separation = self._optional_value_at_amplitude(
-                    best_amplitude,
-                    sorted_amplitudes,
-                    numeric_separations,
-                )
-                if best_separation is not None:
-                    separation_ax.scatter(
-                        [best_amplitude],
-                        [best_separation],
-                        color="green",
-                        marker="*",
-                        s=95,
-                        zorder=4,
-                    )
-                separation_ax.axvline(
-                    best_amplitude,
-                    color="green",
-                    linestyle=":",
-                    linewidth=1.5,
-                )
+            self._plot_selected_point(
+                fidelity_ax,
+                selected_amplitude,
+                selected_fidelity,
+                size=175,
+                label=f"Selected A={selected_amplitude:.4g}",
+            )
 
-                initial_amplitude = self.initial_amplitudes.get(qubit_name)
-                if initial_amplitude is not None:
-                    initial_separation = self._optional_value_at_amplitude(
-                        initial_amplitude,
-                        sorted_amplitudes,
-                        numeric_separations,
-                    )
-                    if initial_separation is not None:
-                        separation_ax.scatter(
-                            [initial_amplitude],
-                            [initial_separation],
-                            color="red",
-                            marker="o",
-                            s=55,
-                            zorder=4,
-                        )
-                    separation_ax.axvline(
-                        initial_amplitude,
-                        color="red",
-                        linestyle="--",
-                        linewidth=1.2,
-                    )
+        self._plot_separation_sweep(
+            separation_ax,
+            qubit_name=qubit_name,
+            sorted_amplitudes=sorted_amplitudes,
+            sorted_indices=sorted_indices,
+            best_amplitude=best_amplitude,
+            color=color,
+            include_qubit_in_label=include_qubit_in_label,
+        )
 
-                if self.selected_amplitude is not None:
-                    selected_amplitude = float(self.selected_amplitude)
-                    selected_separation = self._optional_value_at_amplitude(
-                        selected_amplitude,
-                        sorted_amplitudes,
-                        numeric_separations,
-                    )
-                    if selected_separation is not None:
-                        self._plot_selected_point(
-                            separation_ax,
-                            selected_amplitude,
-                            selected_separation,
-                            size=135,
-                        )
-
-        average_roundnesses = self._average_optional_values(
-            self.roundnesses,
+    def _plot_separation_sweep(
+        self,
+        separation_ax,
+        *,
+        qubit_name: str,
+        sorted_amplitudes: list[float],
+        sorted_indices: np.ndarray,
+        best_amplitude: float,
+        color: str,
+        include_qubit_in_label: bool,
+    ) -> None:
+        separation_values = self._sorted_optional_values(
+            self.separations.get(qubit_name, []),
             sorted_indices,
         )
-        if any(value is not None for value in average_roundnesses):
-            fidelity_ax.plot(
+        if not any(value is not None for value in separation_values):
+            return
+
+        numeric_separations = [
+            np.nan if value is None else value for value in separation_values
+        ]
+        separation_ax.plot(
+            sorted_amplitudes,
+            numeric_separations,
+            marker="o",
+            color=color,
+            label=f"Qubit {qubit_name}" if include_qubit_in_label else "Separation",
+        )
+        best_separation = self._optional_value_at_amplitude(
+            best_amplitude,
+            sorted_amplitudes,
+            numeric_separations,
+        )
+        if best_separation is not None:
+            separation_ax.scatter(
+                [best_amplitude],
+                [best_separation],
+                color="green",
+                marker="*",
+                s=95,
+                zorder=4,
+            )
+        separation_ax.axvline(
+            best_amplitude,
+            color="green",
+            linestyle=":",
+            linewidth=1.5,
+        )
+
+        initial_amplitude = self.initial_amplitudes.get(qubit_name)
+        if initial_amplitude is not None:
+            initial_separation = self._optional_value_at_amplitude(
+                initial_amplitude,
                 sorted_amplitudes,
-                [np.nan if value is None else value for value in average_roundnesses],
+                numeric_separations,
+            )
+            if initial_separation is not None:
+                separation_ax.scatter(
+                    [initial_amplitude],
+                    [initial_separation],
+                    color="red",
+                    marker="o",
+                    s=55,
+                    zorder=4,
+                )
+            separation_ax.axvline(
+                initial_amplitude,
                 color="red",
-                marker="s",
-                linewidth=1.5,
-                alpha=0.75,
-                label="Average roundness",
-                zorder=2,
+                linestyle="--",
+                linewidth=1.2,
             )
 
-        fidelity_ax.set_title(self._title())
+        if self.selected_amplitude is not None:
+            selected_amplitude = float(self.selected_amplitude)
+            selected_separation = self._optional_value_at_amplitude(
+                selected_amplitude,
+                sorted_amplitudes,
+                numeric_separations,
+            )
+            if selected_separation is not None:
+                self._plot_selected_point(
+                    separation_ax,
+                    selected_amplitude,
+                    selected_separation,
+                    size=135,
+                )
+
+    def _plot_roundness(
+        self,
+        fidelity_ax,
+        qubit_name: str,
+        sorted_amplitudes: list[float],
+        sorted_indices: np.ndarray,
+    ) -> None:
+        roundness_values = self._sorted_optional_values(
+            self.roundnesses.get(qubit_name, []),
+            sorted_indices,
+        )
+        if not any(value is not None for value in roundness_values):
+            return
+
+        fidelity_ax.plot(
+            sorted_amplitudes,
+            [np.nan if value is None else value for value in roundness_values],
+            color="red",
+            marker="s",
+            linewidth=1.5,
+            alpha=0.75,
+            label="Roundness",
+            zorder=2,
+        )
+
+    def _format_axes(
+        self,
+        fidelity_ax,
+        separation_ax,
+        *,
+        title: str,
+        show_xlabel: bool,
+    ) -> None:
+        fidelity_ax.set_title(title)
         fidelity_ax.set_ylabel("Readout Fidelity")
         fidelity_ax.set_ylim(0.5, 1.0)
         fidelity_ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.6)
         fidelity_ax.legend()
-        separation_ax.set_xlabel("Readout Amplitude")
+        if show_xlabel:
+            separation_ax.set_xlabel("Readout Amplitude")
         separation_ax.set_ylabel("Separation")
         separation_ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.6)
         if separation_ax.has_data():
             separation_ax.legend()
-        fig.tight_layout()
-
-        return fig
 
     def _plot_selected_point(
         self,
@@ -390,4 +506,12 @@ class ReadoutAmplitudeSweepPlotter:
         if self.reset_label:
             title_parts.append(self.reset_label)
 
+        return " - ".join(title_parts)
+
+    def _qubit_title(self, qubit_name: str) -> str:
+        title_parts = [f"Qubit {qubit_name}"]
+        if qubit_name in self.readout_lengths:
+            title_parts.append(f"{self.readout_lengths[qubit_name] * 1e9:.0f} ns")
+        if self.reset_label:
+            title_parts.append(self.reset_label)
         return " - ".join(title_parts)
