@@ -16,6 +16,7 @@ Use the workspace virtual environment for verification and scripts:
 - Prefer `.venv/bin/python` over bare `python` or global `python3`.
 - Use `.venv/bin/pytest`, `.venv/bin/ruff`, and similar tool entrypoints when available.
 - If the virtual environment is missing or stale, recreate it with `uv sync` before falling back to a global interpreter.
+- Do not add `argparse.ArgumentParser` CLI plumbing unless the user explicitly asks for an argparse-based command-line interface.
 
 ## Parent Package Repositories
 

@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sys
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+if __name__ == "__main__" and __package__ in (None, ""):
+    WORKBENCH_ROOT = Path(__file__).resolve().parents[2]
+    if str(WORKBENCH_ROOT) not in sys.path:
+        sys.path.insert(0, str(WORKBENCH_ROOT))
+
+    from workbench_bootstrap import setup_workbench_environment
+
+    setup_workbench_environment()
+
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from qratena.experiments.amplitude_rabi import AmplitudeRabiHandler
 from qratena.experiments.base_experiment import ExperimentSettings
 from qratena.experiments.experiment_handler import ExperimentHandler
 from qratena.experiments.iq_blobs import IQBlobsHandler
@@ -18,11 +28,13 @@ from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHand
 from qratena.system.components_params.profile import Profile
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.system.qratena_platform import create_platform
-from qratena.system.qratena_platform import create_platform
-from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES, ExportationMethod, ResetType, UpdateParamsMethod
+from qratena.util.enums import (
+    SUPPORTED_PULSE_SHAPES,
+    ExportationMethod,
+    ResetType,
+    UpdateParamsMethod,
+)
 from qratena.util.sweeps_utils import MidIntervalArray
-from qratena.util.sweeps_utils import MidIntervalArray
-
 
 from laboneq.core.types.enums.acquisition_type import AcquisitionType
 from laboneq.core.types.enums.averaging_mode import AveragingMode
@@ -523,8 +535,37 @@ class ReadoutFidelityWorkflow:
         return handler
 
 
-if __name__ == "__main__":
-    raise SystemExit(
-        "This module is library code. Use optimize/readout/run_all_qubits_report.py "
-        "or another explicit runner script."
+def main() -> None:
+    from resources.load_profile import load_profile, load_task_manager
+
+    profile_name = "main"
+    qubit_names = ["q3"]
+    states = ["g", "e"]
+    do_emulation = False  # Set to True to run the workflow without a task manager
+
+    profile = load_profile(profile_name)
+    task_manager = object() if do_emulation else load_task_manager()
+
+    settings = ReadoutFidelityWorkflowSettings(
+        profile_name=profile_name,
+        do_emulation=do_emulation,
+        run_resonator=False,
+        run_kernels=True,
+        run_iq_blobs=True,
+        do_plotting=False,
+        show_handler_output=True,
+        reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
+        states=states,
     )
+    workflow = ReadoutFidelityWorkflow(
+        qubit_names=qubit_names,
+        profile=profile,
+        task_manager=task_manager,
+        settings=settings,
+    )
+    results = workflow.run()
+    print(f"Readout workflow result keys: {', '.join(results)}")
+
+
+if __name__ == "__main__":
+    main()

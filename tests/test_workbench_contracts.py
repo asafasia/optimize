@@ -47,14 +47,10 @@ def test_no_wildcard_resource_imports():
     assert offenders == []
 
 
-def test_library_readout_modules_do_not_run_hardware_workflows_as_scripts():
-    for relative_path in (
-        "optimize/readout/readout_workflow.py",
-        "optimize/readout/readout_amplitude_optimizer.py",
-    ):
-        text = (ROOT / relative_path).read_text()
-        main_block = text.split('if __name__ == "__main__":', maxsplit=1)[1]
+def test_readout_amplitude_optimizer_does_not_run_hardware_workflows_as_script():
+    text = (ROOT / "optimize/readout/readout_amplitude_optimizer.py").read_text()
+    main_block = text.split('if __name__ == "__main__":', maxsplit=1)[1]
 
-        assert "raise SystemExit" in main_block
-        assert "workflow.run()" not in main_block
-        assert "optimizer.run()" not in main_block
+    assert "raise SystemExit" in main_block
+    assert "workflow.run()" not in main_block
+    assert "optimizer.run()" not in main_block

@@ -82,15 +82,17 @@ handler = FineRabi2DHandler(
     profile=profile,
 )
 
-compiled_experiment = handler.get_compiled_experiment()
+# compiled_experiment = handler.get_compiled_experiment()
 
-task_id = task_manager.submit_compiled_experiment(
-    experiment_name=handler.experiment_name,
-    profile_name="main",
-    qubit_names=handler.qubit_names,
-    compiled_experiment=compiled_experiment,
-    do_emulation=False,
-)
+# task_id = task_manager.submit_compiled_experiment(
+#     experiment_name=handler.experiment_name,
+#     profile_name="main",
+#     qubit_names=handler.qubit_names,
+#     compiled_experiment=compiled_experiment,
+#     do_emulation=False,
+# )
+
+task_id = '9e611236-c71b-4eee-87c3-24242b66139a'
 
 task_result = task_manager.wait_for_result(task_id)
 
