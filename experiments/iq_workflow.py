@@ -15,7 +15,6 @@ from resources.load_profile import load_profile, load_task_manager, push_profile
 
 task_manager = load_task_manager()
 
-q = "q3"
 
 profile_name = "main"
 
@@ -24,14 +23,14 @@ profile = load_profile(profile_name)
 all_qubits = list(profile.qubits.keys())
 
 
-qubits = [q]
+qubits = sorted(list(profile.qubits.keys()), key=lambda q: int(q[1:]))
 states = ["g", "e"]
 
 
-pulse = profile.qubits[qubits[0]].pulses['readout']['const']
+# pulse = profile.qubits[qubits[0]].pulses['readout']['const']
 
-print(
-    f"Readout pulse for {qubits[0]}: {pulse.readout_amplitude}, {pulse.readout_duration}")
+# print(
+#     f"Readout pulse for {qubits[0]}: {pulse.readout_amplitude}, {pulse.readout_duration}")
 
 settings = ExperimentSettings(
     num_shots=20_000,
@@ -84,19 +83,16 @@ settings = ExperimentSettings(
 
 qubits = sorted(list(profile.qubits.keys()), key=lambda q: int(q[1:]))
 
-qubits = [q]
 handler = IQBlobsHandler(
     qubit_names=qubits,
     settings=settings,
-    # profile=profile,
+    profile=profile,
     # or ["g", "e", "f"] depending on the system and goals
 )
 
 
 compiled_experiment = handler.get_compiled_experiment()
 
-
-# plot_simulation(compiled_experiment)
 
 task_id = task_manager.submit_compiled_experiment(
     experiment_name=handler.experiment_name,

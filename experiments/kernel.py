@@ -20,59 +20,50 @@ profile_name = "main_asaf"
 profile = load_profile(profile_name)
 
 
-# profile.ensure_pi_ef_pulse_for_all_qubits(overwrite=False)
-
-
 all_qubits = sorted(list(profile.qubits.keys()), key=lambda x: int(x[1:]))
 
-for q in all_qubits:
-    print(f"Running experiment for qubit: {q}")
 
-    qubits = [q]
-    states = ["g", "e"]
+qubits = ['q1','q2','q3','q4','q5','q6','q7','q8','q9','q10','q11','q12','q13','q14','q15','q16','q17','q18','q19','q20']
+states = ["g", "e"]
 
-    pulse = profile.qubits[qubits[0]].pulses['readout']['const']
+settings = ExperimentSettings(
+    num_shots=20_000,
+    exportation_method=ExportationMethod.NONE,
+    update_params_method=UpdateParamsMethod.UPDATE,
+)
 
-    print(
-        f"Readout pulse for {qubits[0]}: {pulse.readout_amplitude}, {pulse.readout_duration}")
+handler = KernelTracesCalculationHandler(
+    qubit_names=qubits,
+    settings=settings,
+    states=states,
+    profile=profile,
+    use_multiplexed_readout = False,
+)
 
-    settings = ExperimentSettings(
-        num_shots=20_000,
-        exportation_method=ExportationMethod.NONE,
-        update_params_method=UpdateParamsMethod.UPDATE,
-    )
+compiled_experiment = handler.get_compiled_experiment()
 
-    handler = KernelTracesCalculationHandler(
-        qubit_names=qubits,
-        settings=settings,
-        states=states,
-        profile=profile,
-    )
+task_id = task_manager.submit_compiled_experiment(
+    experiment_name=handler.experiment_name,
+    profile_name=profile_name,
+    qubit_names=handler.qubit_names,
+    compiled_experiment=compiled_experiment,
+    do_emulation=False,
+)
 
-    compiled_experiment = handler.get_compiled_experiment()
+task_result = task_manager.wait_for_result(task_id)
 
-    task_id = task_manager.submit_compiled_experiment(
-        experiment_name=handler.experiment_name,
-        profile_name=profile_name,
-        qubit_names=handler.qubit_names,
-        compiled_experiment=compiled_experiment,
-        do_emulation=False,
-    )
+handler.experiment_result = from_json(task_result.raw_data)
 
-    task_result = task_manager.wait_for_result(task_id)
+# %%
 
-    handler.experiment_result = from_json(task_result.raw_data)
+handler.analyze()
 
-    # %%
+handler.plot()
 
-    handler.analyze()
-
-    handler.plot()
-
-    handler.update_system_params()
+handler.update_system_params()
 
 
 # %%
 profile = Profile.default()
 
-push_profile(profile, profile_name)
+# push_profile(profile, profile_name)
