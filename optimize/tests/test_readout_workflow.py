@@ -60,7 +60,7 @@ def test_deserialize_laboneq_result_reraises_unrelated_type_errors(monkeypatch):
         raise AssertionError("expected TypeError")
 
 
-def test_resonator_and_kernel_run_per_qubit_before_parallel_iq_blobs(monkeypatch):
+def test_resonator_runs_per_qubit_kernel_runs_once_for_all_qubits(monkeypatch):
     calls = []
 
     class FakeProfile:
@@ -154,8 +154,7 @@ def test_resonator_and_kernel_run_per_qubit_before_parallel_iq_blobs(monkeypatch
     assert calls == [
         ("resonator", ("q1",)),
         ("resonator", ("q3",)),
-        ("kernel", ("q1",)),
-        ("kernel", ("q3",)),
+        ("kernel", ("q1", "q3")),
         ("iq_blobs", ("q1", "q3")),
     ]
     assert result["resonator"].keys() == {"q1", "q3"}
@@ -166,8 +165,7 @@ def test_resonator_and_kernel_run_per_qubit_before_parallel_iq_blobs(monkeypatch
         ["q3"],
     ]
     assert [handler.qubit_names for handler in workflow.kernel_handlers] == [
-        ["q1"],
-        ["q3"],
+        ["q1", "q3"],
     ]
     assert workflow.iq_blobs_handler.qubit_names == ["q1", "q3"]
     assert profile.qubits["q1"].readout_resonator_frequency.value == 7.0e9 + 1

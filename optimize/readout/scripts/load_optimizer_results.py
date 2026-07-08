@@ -62,24 +62,11 @@ def main() -> None:
     if not WAIT_FOR_RESULTS and not summary["ready_to_collect"]:
         return
 
-    if is_staged_kernel_run(manifest):
-        result = optimizer.collect_kernels_submit_iq_blobs(
-            run_dir,
-            wait_for_iq_results=WAIT_FOR_RESULTS,
-            save_results=True,
-        )
-    elif is_staged_iq_run(manifest):
-        result = optimizer.collect_staged_iq_results(
-            run_dir,
-            save_results=True,
-            wait=WAIT_FOR_RESULTS,
-        )
-    else:
-        result = optimizer.collect_submitted_results(
-            run_dir,
-            save_results=True,
-            wait=True,
-        )
+    result = optimizer.collect_submitted_results(
+        run_dir,
+        save_results=True,
+        wait=True,
+    )
 
     if isinstance(result, dict) and "ready_to_collect" in result:
         print(result["message"])
@@ -116,20 +103,6 @@ def load_metadata(run_dir: Path) -> dict[str, Any]:
     if not metadata_path.exists():
         return {}
     return json.loads(metadata_path.read_text(encoding="utf-8"))
-
-
-def is_staged_kernel_run(manifest: dict[str, Any]) -> bool:
-    tasks = list(manifest.get("tasks", []))
-    return bool(tasks) and any(task.get("node") == "kernels" for task in tasks) and not any(
-        task.get("node") == "iq_blobs" for task in tasks
-    )
-
-
-def is_staged_iq_run(manifest: dict[str, Any]) -> bool:
-    return any(
-        task.get("stage") == "iq_blobs" or task.get("depends_on_stage") == "kernels"
-        for task in manifest.get("tasks", [])
-    )
 
 
 def workflow_settings_from_metadata(

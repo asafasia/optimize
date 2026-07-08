@@ -27,7 +27,6 @@ Runnable reports and narrow lab utilities live in `scripts/`:
 - `scripts/run_iq_blobs_active_reset_comparison.py`
 - `scripts/measure_all_qubit_multiplexed_iq_blob_fidelities.py`
 - `scripts/load_optimizer_results.py`
-- `scripts/validate_optimizer_iq_blobs.py`
 
 Old one-off script files were moved out of `optimize/readout/`; use the
 `scripts/` paths directly.

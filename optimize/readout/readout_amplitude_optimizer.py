@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -145,23 +144,6 @@ class ReadoutAmplitudeSweepWorkflow(
         self._auto_save_after_run()
         return self.results
 
-    def submit_kernel_stage(self) -> dict[float, dict[str, Any]]:
-        """Stage 1 for submit-only sweeps: submit kernel tasks only."""
-        original_submit_only = self.settings.submit_only
-        original_workflow_settings = self.settings.workflow_settings
-        try:
-            self.settings.submit_only = True
-            self.settings.workflow_settings = replace(
-                self.settings.workflow_settings,
-                run_resonator=False,
-                run_kernels=True,
-                run_iq_blobs=False,
-            )
-            return self.run()
-        finally:
-            self.settings.submit_only = original_submit_only
-            self.settings.workflow_settings = original_workflow_settings
-
     def _validate_execution_mode(self) -> None:
         if not self.settings.submit_only:
             return
@@ -171,15 +153,6 @@ class ReadoutAmplitudeSweepWorkflow(
             raise ValueError("submit_only is supported only for sweep mode.")
         if self.settings.workflow_settings.do_emulation:
             raise ValueError("submit_only requires a task manager; disable do_emulation.")
-        if (
-            self.settings.workflow_settings.run_kernels
-            and self.settings.workflow_settings.run_iq_blobs
-        ):
-            raise ValueError(
-                "submit_only cannot submit kernels and IQ blobs together because "
-                "IQ blobs depend on generated kernels. Use submit_kernel_stage() "
-                "first, then collect_kernels_submit_iq_blobs(run_dir)."
-            )
 
     def _prepare_profile_for_states(self) -> None:
         if "f" not in self.settings.workflow_settings.states:

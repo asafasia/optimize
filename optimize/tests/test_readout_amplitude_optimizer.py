@@ -296,11 +296,20 @@ def test_submit_only_sweep_saves_pending_manifest(monkeypatch, tmp_path):
             submitted_amplitudes.append(amplitude)
             self.submitted_tasks = [
                 {
-                    "task_id": f"task-{amplitude}-kernel-q1",
-                    "task_key": "kernel/q1",
+                    "task_id": f"task-{amplitude}-kernel-q1-q2",
+                    "task_key": "kernel/q1+q2",
                     "experiment_name": "kernel",
-                    "qubit_names": ["q1"],
+                    "qubit_names": ["q1", "q2"],
                     "node": "kernels",
+                    "result_status": "pending",
+                    "result_path": None,
+                },
+                {
+                    "task_id": f"task-{amplitude}-iq-q1-q2",
+                    "task_key": "iq_blobs/q1+q2",
+                    "experiment_name": "iq_blobs",
+                    "qubit_names": ["q1", "q2"],
+                    "node": "iq_blobs",
                     "result_status": "pending",
                     "result_path": None,
                 },
@@ -309,9 +318,10 @@ def test_submit_only_sweep_saves_pending_manifest(monkeypatch, tmp_path):
 
     submitted_amplitudes = []
     monkeypatch.setattr(optimizer_mod, "ReadoutFidelityWorkflow", FakeWorkflow)
-    optimizer = make_optimizer(amplitudes=(0.02, 0.04))
+    optimizer = make_optimizer(amplitudes=(0.02, 0.04), qubit_names=("q1", "q2"))
     optimizer.settings.submit_only = True
-    optimizer.settings.workflow_settings.run_iq_blobs = False
+    optimizer.settings.workflow_settings.run_kernels = True
+    optimizer.settings.workflow_settings.run_iq_blobs = True
     optimizer.settings.live_html_output_dir = tmp_path
 
     optimizer.run()
@@ -331,59 +341,64 @@ def test_submit_only_sweep_saves_pending_manifest(monkeypatch, tmp_path):
     assert metadata["run_key"] == optimizer.run_dir.name
     assert metadata["run_dir"] == str(optimizer.run_dir)
     assert manifest["amplitudes"] == [0.02, 0.04]
-    assert manifest["task_count"] == 2
+    assert manifest["task_count"] == 4
     assert manifest["tasks"][0]["sweep_parameters"] == {"readout_amplitude": 0.02}
     assert manifest["tasks"][0]["task_key"].startswith(
-        "sweep/0000/readout_amplitude=0.02/kernels/q1/"
+        "sweep/0000/readout_amplitude=0.02/kernels/q1+q2/"
+    )
+    assert manifest["tasks"][1]["task_key"].startswith(
+        "sweep/0000/readout_amplitude=0.02/iq_blobs/q1+q2/"
     )
 
 
-def test_submit_only_rejects_kernels_and_iq_blobs_together():
-    optimizer = make_optimizer(amplitudes=(0.02, 0.04))
-    optimizer.settings.submit_only = True
-    optimizer.settings.workflow_settings.run_kernels = True
-    optimizer.settings.workflow_settings.run_iq_blobs = True
-
-    with pytest.raises(ValueError, match="cannot submit kernels and IQ blobs together"):
-        optimizer.run()
-
-
-def test_submit_kernel_stage_submits_only_kernel_tasks(monkeypatch, tmp_path):
-    captured_settings = []
-
+def test_submit_only_allows_kernels_and_iq_blobs_together(monkeypatch, tmp_path):
     class FakeWorkflow:
         def __init__(self, qubit_names, profile, task_manager, settings):
             self.settings = settings
             self.submitted_tasks = []
 
         def run(self):
-            captured_settings.append(self.settings)
+            assert self.settings.task_execution_mode == "submit_only"
+            assert self.settings.run_kernels is True
+            assert self.settings.run_iq_blobs is True
             self.submitted_tasks = [
                 {
                     "task_id": "kernel-task",
-                    "task_key": "kernel/q1",
+                    "task_key": "kernel/q1+q2",
                     "experiment_name": "kernel",
-                    "qubit_names": ["q1"],
+                    "qubit_names": ["q1", "q2"],
                     "node": "kernels",
                     "result_status": "pending",
                     "result_path": None,
-                }
+                },
+                {
+                    "task_id": "iq-task",
+                    "task_key": "iq_blobs/q1+q2",
+                    "experiment_name": "iq_blobs",
+                    "qubit_names": ["q1", "q2"],
+                    "node": "iq_blobs",
+                    "result_status": "pending",
+                    "result_path": None,
+                },
             ]
             return {"submitted": True}
 
     monkeypatch.setattr(optimizer_mod, "ReadoutFidelityWorkflow", FakeWorkflow)
-    optimizer = make_optimizer(amplitudes=(0.02,))
-    optimizer.settings.live_html_output_dir = tmp_path
+    optimizer = make_optimizer(amplitudes=(0.02, 0.04))
+    optimizer.settings.submit_only = True
     optimizer.settings.workflow_settings.run_kernels = True
     optimizer.settings.workflow_settings.run_iq_blobs = True
+    optimizer.settings.live_html_output_dir = tmp_path
 
-    optimizer.submit_kernel_stage()
+    optimizer.run()
 
-    assert captured_settings[0].task_execution_mode == "submit_only"
-    assert captured_settings[0].run_kernels is True
-    assert captured_settings[0].run_iq_blobs is False
-    assert optimizer.settings.submit_only is False
-    assert optimizer.settings.workflow_settings.run_iq_blobs is True
+    assert optimizer.submitted_amplitudes == [0.02, 0.04]
+    assert [task["node"] for task in optimizer.submitted_task_entries] == [
+        "kernels",
+        "iq_blobs",
+        "kernels",
+        "iq_blobs",
+    ]
 
 
 def test_submit_only_rejects_non_sweep_mode():
@@ -394,84 +409,6 @@ def test_submit_only_rejects_non_sweep_mode():
 
     with pytest.raises(ValueError, match="submit_only is supported only for sweep mode"):
         optimizer.run()
-
-
-def test_collect_kernels_submit_iq_blobs_updates_manifest(monkeypatch, tmp_path):
-    workflow_calls = []
-
-    class FakeWorkflow:
-        resonator_handler = None
-        kernel_handler = None
-        iq_blobs_handler = None
-        resonator_handlers = []
-        kernel_handlers = []
-
-        def __init__(self, qubit_names, profile, task_manager, settings):
-            self.qubit_names = qubit_names
-            self.settings = settings
-            self.submitted_tasks = []
-
-        def collect_submitted_results(self, task_entries):
-            workflow_calls.append(("collect", self.settings, task_entries))
-            if self.settings.run_kernels:
-                return {"kernels": {"q1": {"calculated_kernels": ["k"]}}}
-            return workflow_result(self.qubit_names, fidelity=0.92)
-
-        def run(self):
-            workflow_calls.append(("run", self.settings, []))
-            self.submitted_tasks = [
-                {
-                    "task_id": "iq-task",
-                    "task_key": "iq/q1",
-                    "experiment_name": "iq_blobs",
-                    "qubit_names": ["q1"],
-                    "node": "iq_blobs",
-                    "result_status": "pending",
-                    "result_path": None,
-                }
-            ]
-            return {"iq_blobs": self.submitted_tasks[0]}
-
-    monkeypatch.setattr(optimizer_mod, "ReadoutFidelityWorkflow", FakeWorkflow)
-    run_dir = tmp_path / "pending"
-    run_dir.mkdir()
-    manifest = {
-        "schema_version": 1,
-        "run_status": "submitted_pending_results",
-        "tasks": [
-            {
-                "task_id": "kernel-task",
-                "task_key": "sweep/0000/readout_amplitude=0.02/kernels/q1/00",
-                "amplitude": 0.02,
-                "sweep_index": 0,
-                "qubit_names": ["q1"],
-                "node": "kernels",
-                "result_status": "pending",
-            }
-        ],
-    }
-    (run_dir / "task_manifest.json").write_text(
-        json.dumps(manifest),
-        encoding="utf-8",
-    )
-    optimizer = make_optimizer(amplitudes=(0.02,))
-
-    summary = optimizer.collect_kernels_submit_iq_blobs(
-        run_dir,
-        wait_for_iq_results=False,
-    )
-
-    updated = json.loads((run_dir / "task_manifest.json").read_text())
-    assert updated["run_status"] in {
-        "iq_blobs_submitted",
-        "submitted_pending_results",
-        "ready_to_collect",
-    }
-    assert len(updated["tasks"]) == 2
-    assert updated["tasks"][0]["stage"] == "kernels"
-    assert updated["tasks"][1]["stage"] == "iq_blobs"
-    assert updated["tasks"][1]["kernel_dir"].endswith("sweep_0000_amplitude_0p02")
-    assert summary["total"] == 2
 
 
 def test_collect_submitted_results_uses_manifest_tasks(monkeypatch, tmp_path):

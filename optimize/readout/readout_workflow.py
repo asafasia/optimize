@@ -150,26 +150,20 @@ class ReadoutFidelityWorkflow:
     def run_kernel_node(self) -> Any:
         self._validate_kernel_states()
         self.kernel_handlers = []
-        kernel_data = {}
+        handler = self._build_kernel_handler()
+        self.kernel_handlers.append(handler)
+        self.kernel_handler = handler
 
-        for qubit_name in self.qubit_names:
-            handler = self._build_kernel_handler(qubit_name)
-            self.kernel_handlers.append(handler)
-            self.kernel_handler = handler
+        if self.settings.do_emulation:
+            self._run_handler_locally(handler)
+        else:
+            with self._optional_output_suppression():
+                result = self._submit_handler(handler)
+            if self._submit_only:
+                return result
+            self._load_handler_result(handler, result)
 
-            if self.settings.do_emulation:
-                self._run_handler_locally(handler)
-            else:
-                with self._optional_output_suppression():
-                    result = self._submit_handler(handler)
-                if self._submit_only:
-                    kernel_data[qubit_name] = result
-                    continue
-                self._load_handler_result(handler, result)
-
-            kernel_data.update(handler.data)
-
-        return kernel_data
+        return handler.data
 
     def _validate_kernel_states(self) -> None:
         if self.settings.states not in (["g", "e"], ["g", "e", "f"]):
@@ -345,21 +339,17 @@ class ReadoutFidelityWorkflow:
     ) -> dict[str, Any]:
         self._validate_kernel_states()
         self.kernel_handlers = []
-        kernel_data = {}
+        entry = entries[0] if entries else None
+        if entry is None:
+            return {}
 
-        entries_by_qubit = self._entries_by_single_qubit(entries)
-        for qubit_name in self.qubit_names:
-            entry = entries_by_qubit.get(qubit_name)
-            if entry is None:
-                continue
-            handler = self._build_kernel_handler(qubit_name)
-            self.kernel_handlers.append(handler)
-            self.kernel_handler = handler
-            result = self._wait_for_task(entry["task_id"], entry["task_key"])
-            self._load_handler_result(handler, result)
-            kernel_data.update(handler.data)
+        handler = self._build_kernel_handler()
+        self.kernel_handlers.append(handler)
+        self.kernel_handler = handler
+        result = self._wait_for_task(entry["task_id"], entry["task_key"])
+        self._load_handler_result(handler, result)
 
-        return kernel_data
+        return handler.data
 
     def _collect_iq_blobs_results(
         self,
@@ -723,7 +713,7 @@ class ReadoutFidelityWorkflow:
 
         return handler
 
-    def _build_kernel_handler(self, qubit_name: str):
+    def _build_kernel_handler(self):
         settings = ExperimentSettings(
             log_level=0,
             num_shots=20000,
@@ -736,7 +726,7 @@ class ReadoutFidelityWorkflow:
             # do_plotting=self.settings.do_plotting,
         )
         handler = KernelTracesCalculationHandler(
-            qubit_names=[qubit_name],
+            qubit_names=self.qubit_names,
             settings=settings,
             profile=self.profile,
             session=self.session,
