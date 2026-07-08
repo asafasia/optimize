@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-WORKBENCH_ROOT = Path(__file__).resolve().parents[3]
+WORKBENCH_ROOT = Path(__file__).resolve().parents[4]
 if str(WORKBENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKBENCH_ROOT))
 
@@ -95,7 +95,7 @@ class AllQubitsReadoutReport:
                 passive_result = self._run_condition(
                     qubit_name=qubit_name,
                     condition="passive",
-                    reset=ResetSettings(ResetType.PASSIVE),
+                    reset=ResetSettings(reset_type=ResetType.PASSIVE),
                     run_full_workflow=False,
                 )
 

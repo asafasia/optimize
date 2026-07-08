@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
 
 
 @dataclass(slots=True)

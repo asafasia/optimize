@@ -3,44 +3,20 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import sys
 import threading
-from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-if __name__ == "__main__" and __package__ in (None, ""):
-    WORKBENCH_ROOT = Path(__file__).resolve().parents[2]
-    if str(WORKBENCH_ROOT) not in sys.path:
-        sys.path.insert(0, str(WORKBENCH_ROOT))
-
-    from workbench_bootstrap import setup_workbench_environment
-
-    setup_workbench_environment()
-
-from laboneq.core.types.enums.acquisition_type import AcquisitionType
-from laboneq.core.types.enums.averaging_mode import AveragingMode
 from laboneq.dsl.session import Session
 from laboneq.simple import from_json
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
-from qratena.experiments.base_experiment import ExperimentSettings
 from qratena.experiments.experiment_handler import ExperimentHandler
-from qratena.experiments.iq_blobs import IQBlobsHandler
-from qratena.experiments.kernel_traces_calculation import KernelTracesCalculationHandler
-from qratena.experiments.resonator_spectroscopy import ResonatorSpectroscopyHandler
 from qratena.system.components_params.profile import Profile
-from qratena.system.components_params.reset_settings import ResetSettings
-from qratena.system.qratena_platform import create_platform
-from qratena.util.enums import (
-    SUPPORTED_PULSE_SHAPES,
-    ExportationMethod,
-    ResetType,
-    UpdateParamsMethod,
-)
-from qratena.util.sweeps_utils import MidIntervalArray
+
+from optimize.readout.workflow_handlers import ReadoutWorkflowHandlerFactoryMixin
+from optimize.readout.workflow_settings import ReadoutFidelityWorkflowSettings
 
 if TYPE_CHECKING:
     from qigeon import TaskSubmitterAsync
@@ -48,24 +24,7 @@ else:
     TaskSubmitterAsync = Any
 
 
-@dataclass(slots=True)
-class ReadoutFidelityWorkflowSettings:
-    profile_name: str = "main"
-    do_emulation: bool = False
-    run_resonator: bool = True
-    run_kernels: bool = True
-    run_iq_blobs: bool = True
-    do_plotting: bool = False
-    show_handler_output: bool = True
-    report_timing: bool = True
-    task_status_poll_interval: float = 10.0
-    task_execution_mode: str = "wait"
-    low_priority_tasks: bool = False
-    reset: ResetSettings = field(default_factory=ResetSettings)
-    states: list[str] = field(default_factory=lambda: ["g", "e"])
-
-
-class ReadoutFidelityWorkflow:
+class ReadoutFidelityWorkflow(ReadoutWorkflowHandlerFactoryMixin):
     """Workflow:
 
     1. Resonator spectroscopy
@@ -83,7 +42,6 @@ class ReadoutFidelityWorkflow:
     ) -> None:
 
         self.session = session
-
         self.qubit_names = qubit_names
         self.profile = profile
         self.task_manager = task_manager
@@ -682,122 +640,3 @@ class ReadoutFidelityWorkflow:
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             yield
-
-    def _update_profile_from_resonator(self, handler) -> None:
-        for qubit_name in handler.qubit_names:
-            optimal_frequency = handler.data[qubit_name]["optimal_resonance_freq"]
-            self.profile.qubits[qubit_name].readout_resonator_frequency.value = optimal_frequency
-
-    def _build_resonator_handler(self, qubit_name: str):
-        settings = ExperimentSettings(
-            log_level=0,
-            num_shots=300,
-            exportation_method=ExportationMethod.NONE,
-            acquisition_type=AcquisitionType.SPECTROSCOPY,
-            update_params_method=UpdateParamsMethod.NONE,
-            # configure_logging=self.settings.show_handler_output,
-            do_emulation=True,
-            # do_plotting=self.settings.do_plotting,
-        )
-        handler = ResonatorSpectroscopyHandler(
-            x_resonator_frequency_arrays=[
-                MidIntervalArray(mid_point=None, interval=150e6, num_points=120)
-            ],
-            long_drive_pulse=False,
-            qubit_names=[qubit_name],
-            settings=settings,
-            profile=self.profile,
-            session=self.session,
-            states=self.settings.states,
-        )
-
-        return handler
-
-    def _build_kernel_handler(self):
-        settings = ExperimentSettings(
-            log_level=0,
-            num_shots=20000,
-            exportation_method=ExportationMethod.NONE,
-            update_params_method=UpdateParamsMethod.UPDATE,
-            acquisition_type=AcquisitionType.RAW,
-            averaging_mode=AveragingMode.CYCLIC,
-            # configure_logging=self.settings.show_handler_output,
-            do_emulation=True,
-            # do_plotting=self.settings.do_plotting,
-        )
-        handler = KernelTracesCalculationHandler(
-            qubit_names=self.qubit_names,
-            settings=settings,
-            profile=self.profile,
-            session=self.session,
-            states=self.settings.states,
-        )
-
-        return handler
-
-    def _build_iq_blobs_handler(self):
-        settings = ExperimentSettings(
-            num_shots=10000,
-            acquisition_type=AcquisitionType.INTEGRATION,
-            averaging_mode=AveragingMode.SINGLE_SHOT,
-            exportation_method=ExportationMethod.NONE,
-            pulse_shape=SUPPORTED_PULSE_SHAPES.const,
-            reset=self.settings.reset,
-            do_emulation=True,
-        )
-
-        handler = IQBlobsHandler(
-            qubit_names=self.qubit_names,
-            settings=settings,
-            states=self.settings.states,
-        )
-        handler.configuration_params = self.profile
-        handler.platform = create_platform(self.profile)
-        handler.device_setup = handler.platform.setup
-        if self.session is not None:
-            handler.session = self.session
-
-        return handler
-
-
-def main() -> None:
-    from resources.load_profile import load_profile, load_task_manager
-
-    profile_name = "main_asaf"
-    qubit_names = ["q3"]
-
-    states = ["g", "e"]
-
-    do_emulation = False  # Set to True to run the workflow without a task manager
-    show_plots = True
-
-    profile = load_profile(profile_name)
-    profile.ensure_pi_ef_pulse_for_all_qubits()
-
-    task_manager = object() if do_emulation else load_task_manager()
-
-    settings = ReadoutFidelityWorkflowSettings(
-        profile_name=profile_name,
-        do_emulation=do_emulation,
-        run_resonator=False,
-        run_kernels=True,
-        run_iq_blobs=True,
-        do_plotting=show_plots,
-        show_handler_output=True,
-        reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
-        states=states,
-    )
-    workflow = ReadoutFidelityWorkflow(
-        qubit_names=qubit_names,
-        profile=profile,
-        task_manager=task_manager,
-        settings=settings,
-    )
-    results = workflow.run()
-    print(f"Readout workflow result keys: {', '.join(results)}")
-    if show_plots:
-        plt.show()
-
-
-if __name__ == "__main__":
-    main()

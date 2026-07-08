@@ -18,12 +18,12 @@ the IQ blobs task for the same qubit set.
 ```python
 import numpy as np
 
-from optimize.readout.readout_amplitude_optimizer import (
+from optimize.readout.optimizer import (
     ReadoutAmplitudeSweepSettings,
     ReadoutAmplitudeSweepWorkflow,
 )
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType
 from resources.load_profile import load_profile, load_task_manager
@@ -41,7 +41,7 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     show_handler_output=False,
     low_priority_tasks=True,
     states=["g", "e"],
-    reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+    reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
 )
 
 optimizer_settings = ReadoutAmplitudeSweepSettings(
@@ -69,7 +69,7 @@ exist yet, so there is nothing to plot until collection finishes.
 ## Submit From The CLI
 
 ```bash
-.venv/bin/python optimize_readout.py \
+.venv/bin/python optimize/readout/scripts/optimizer/run_optimizer.py \
   --qubits q5 q6 q7 \
   --amplitudes 0.005 0.01 0.015 0.02 \
   --profile-branch main \
@@ -83,28 +83,19 @@ The command prints the pending run folder path.
 
 ## Collect Results
 
-Use `scripts/load_optimizer_results.py` when you already have the optimizer run
-folder name or path and want the script to check, download, analyze, and save
-the results.
-
-Edit the constants at the top of the script:
-
-```python
-RUN_KEY = "14-32-08_sweep_q5_q6_q7"  # folder name or full run folder path
-OUTPUT_ROOT = Path("data") / "readout_optimize"
-PROFILE_BRANCH = None  # None means use metadata profile_name
-WAIT_FOR_RESULTS = False
-```
-
-Then run it:
+Use `scripts/optimizer/collect_optimizer_results.py` when you already have the
+optimizer run folder name or path and want the script to check, download,
+analyze, and save the results.
 
 ```bash
-.venv/bin/python optimize/readout/scripts/load_optimizer_results.py
+.venv/bin/python optimize/readout/scripts/optimizer/collect_optimizer_results.py \
+  14-32-08_sweep_q5_q6_q7 \
+  --output-root data/readout_optimize
 ```
 
-With `WAIT_FOR_RESULTS = False`, the script checks the saved task IDs and exits
-if any work is still queued or running. With `WAIT_FOR_RESULTS = True`, it blocks
-for task-manager results and saves the normal optimizer artifacts.
+Without `--wait`, the script checks the saved task IDs and exits if any work is
+still queued or running. With `--wait`, it blocks for task-manager results and
+saves the normal optimizer artifacts.
 
 ## Pending Folder Contents
 
@@ -174,7 +165,7 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     show_handler_output=False,
     low_priority_tasks=True,
     states=["g", "e"],
-    reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+    reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
 )
 
 optimizer_settings = ReadoutAmplitudeSweepSettings(

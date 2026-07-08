@@ -5,10 +5,9 @@ workflows.
 
 ## All-Qubit HTML Report
 
-`readout/scripts/run_all_qubits_report.py` is the class-based replacement for the
-ad-hoc `readout/scripts/run_all_qubits.py` script. It runs resonator spectroscopy, kernel
-calculation, and IQ blobs for each selected qubit, followed by a passive-reset
-IQ comparison. It saves a standalone HTML dashboard containing:
+`readout/scripts/reports/all_qubits_report.py` runs resonator spectroscopy,
+kernel calculation, and IQ blobs for each selected qubit, followed by a
+passive-reset IQ comparison. It saves a standalone HTML dashboard containing:
 
 - readout amplitude, pulse length, and resonator frequency
 - active/passive fidelity comparison across qubits
@@ -17,7 +16,7 @@ IQ comparison. It saves a standalone HTML dashboard containing:
 - CSV, JSON, raw-result, settings, error, and profile artifacts
 
 ```bash
-python readout/scripts/run_all_qubits_report.py --qubits q5 q6 q9
+python readout/scripts/reports/all_qubits_report.py --qubits q5 q6 q9
 ```
 
 Use `--skip-passive-comparison`, `--skip-resonator`, or `--skip-kernels` for a
@@ -25,13 +24,13 @@ shorter run. Results are written under `data/readout_all_qubits_report`.
 
 ## Multiplexed IQ Blob Fidelity Comparison
 
-`readout/scripts/measure_all_qubit_multiplexed_iq_blob_fidelities.py` runs the
+`readout/scripts/reports/multiplexed_iq_blob_report.py` runs the
 multiplexed IQ blobs experiment twice for selected qubits: once without active
 reset and once with active reset. It extracts each qubit's readout fidelity and
 saves raw CSV, comparison CSV, summary JSON, and a per-qubit comparison plot.
 
 ```bash
-python readout/scripts/measure_all_qubit_multiplexed_iq_blob_fidelities.py --qubits q5 q6 q9
+python readout/scripts/reports/multiplexed_iq_blob_report.py --qubits q5 q6 q9
 ```
 
 By default it measures every qubit in the selected profile and writes
@@ -138,11 +137,11 @@ git checkout feature/readout-experiment-refactor
 ```python
 import numpy as np
 
-from optimize.readout.readout_amplitude_optimizer import (
+from optimize.readout.optimizer import (
     ReadoutAmplitudeSweepSettings,
     ReadoutAmplitudeSweepWorkflow,
 )
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
 from qratena.system.components_params.reset_settings import ResetSettings
 from qratena.util.enums import ResetType
@@ -164,7 +163,7 @@ workflow_settings = ReadoutFidelityWorkflowSettings(
     task_status_poll_interval=10.0,
     low_priority_tasks=False,
     states=["g", "e", "f"],
-    reset=ResetSettings(ResetType.ACTIVE, reset_num=5),
+reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
 )
 
 optimizer_settings = ReadoutAmplitudeSweepSettings(
@@ -325,14 +324,18 @@ This continuation mode is useful for unattended scans, but it can hide systemati
 ## Important Modules
 
 ```text
-readout/readout_amplitude_optimizer.py  # main optimizer workflow
-readout/readout_workflow.py             # single-amplitude fidelity workflow
-readout/scripts/                        # runnable one-off reports and lab scripts
-readout/utils/readout_scan_methods.py   # sweep / zoom-in / gradient / golden-section scans
-readout/utils/readout_scan_types.py     # scan method enum
-readout/utils/readout_sweep_analysis.py # analysis summary
-readout/utils/readout_sweep_plotter.py  # plotting
-readout/utils/readout_sweep_artifacts.py # saving artifacts
+readout/optimizer/amplitude_sweep.py  # main optimizer workflow
+readout/optimizer/settings.py         # optimizer settings
+readout/optimizer/scan_methods.py     # sweep / zoom-in / gradient / golden-section scans
+readout/optimizer/scan_types.py       # scan method enum
+readout/optimizer/analysis.py         # analysis summary
+readout/optimizer/plotter.py          # plotting
+readout/optimizer/artifacts.py        # saving artifacts
+readout/readout_workflow.py           # single-amplitude fidelity workflow
+readout/workflow_handlers.py          # Qratena handler factories for workflow nodes
+readout/workflow_settings.py          # workflow settings
+readout/validation.py                 # optimizer validation workflow
+readout/scripts/                      # runnable reports, validation, and optimizer entrypoints
 ```
 
 ## Notes

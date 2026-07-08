@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
 
 
 class ReadoutSweepScan:

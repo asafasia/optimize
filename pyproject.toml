@@ -57,6 +57,7 @@ ignore = [
 "experiments/*.py" = ["E402"]
 "amplitude_stability/*.py" = ["E402"]
 "optimize/readout/*.py" = ["E402"]
+"optimize/readout/scripts/**/*.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

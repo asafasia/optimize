@@ -48,9 +48,6 @@ def test_no_wildcard_resource_imports():
 
 
 def test_readout_amplitude_optimizer_does_not_run_hardware_workflows_as_script():
-    text = (ROOT / "optimize/readout/readout_amplitude_optimizer.py").read_text()
-    main_block = text.split('if __name__ == "__main__":', maxsplit=1)[1]
+    text = (ROOT / "optimize/readout/optimizer/amplitude_sweep.py").read_text()
 
-    assert "raise SystemExit" in main_block
-    assert "workflow.run()" not in main_block
-    assert "optimizer.run()" not in main_block
+    assert 'if __name__ == "__main__":' not in text

@@ -2,14 +2,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from optimize.readout.utils.readout_scan_methods import (
+from optimize.readout.optimizer.scan_methods import (
     ReadoutGoldenSectionScan,
     ReadoutGradientAscentScan,
     ReadoutSweepScan,
     ReadoutZoomInScan,
     scan_method_for,
 )
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
 
 
 class FakeOptimizer:

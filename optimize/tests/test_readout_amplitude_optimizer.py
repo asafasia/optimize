@@ -4,13 +4,13 @@ from types import SimpleNamespace
 import pytest
 from matplotlib import pyplot as plt
 
-from optimize.readout import readout_amplitude_optimizer as optimizer_mod
-from optimize.readout.readout_amplitude_optimizer import (
+from optimize.readout.optimizer import amplitude_sweep as optimizer_mod
+from optimize.readout.optimizer import (
     ReadoutAmplitudeSweepSettings,
     ReadoutAmplitudeSweepWorkflow,
 )
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
-from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.optimizer.plotter import ReadoutAmplitudeSweepPlotter
 from qratena.util.enums import SUPPORTED_PULSE_SHAPES, SUPPORTED_PULSE_TYPES
 
 

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-WORKBENCH_ROOT = Path(__file__).resolve().parents[3]
+WORKBENCH_ROOT = Path(__file__).resolve().parents[4]
 if str(WORKBENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKBENCH_ROOT))
 
@@ -75,7 +75,7 @@ class ActiveResetIQBlobsComparison:
             condition="without_active_reset",
         )
         self.active_reset_rows = self._run_iq_blobs_measurement(
-            reset=ResetSettings(ResetType.ACTIVE, reset_num=self.settings.active_reset_num),
+            reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=self.settings.active_reset_num),
             condition="with_active_reset",
         )
         self.report_rows = self._build_report_rows()

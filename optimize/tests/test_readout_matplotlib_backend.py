@@ -18,7 +18,7 @@ def test_readout_optimizer_forces_headless_matplotlib_backend():
             sys.executable,
             "-c",
             (
-                "from optimize.readout.readout_amplitude_optimizer import "
+                "from optimize.readout.optimizer.amplitude_sweep import "
                 "ReadoutAmplitudeSweepSettings; "
                 "import matplotlib; "
                 "print(matplotlib.get_backend()); "
@@ -37,7 +37,9 @@ def test_readout_optimizer_forces_headless_matplotlib_backend():
 
 def test_optimizer_runner_selects_agg_before_importing_pyplot():
     root = Path(__file__).resolve().parents[2]
-    source = (root / "optimize_readout.py").read_text(encoding="utf-8")
+    source = (
+        root / "optimize/readout/scripts/optimizer/run_optimizer.py"
+    ).read_text(encoding="utf-8")
 
     assert source.index('matplotlib.use("Agg", force=True)') < source.index(
         "from matplotlib import pyplot as plt"

@@ -12,7 +12,7 @@ from typing import Any
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 
-from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.optimizer.plotter import ReadoutAmplitudeSweepPlotter
 
 
 class ReadoutLiveHtmlPlotter:

@@ -9,7 +9,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-WORKBENCH_ROOT = Path(__file__).resolve().parents[3]
+WORKBENCH_ROOT = Path(__file__).resolve().parents[4]
 if str(WORKBENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKBENCH_ROOT))
 

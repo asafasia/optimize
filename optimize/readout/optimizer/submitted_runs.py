@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
-from optimize.readout.utils.readout_sweep_artifacts import (
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.artifacts import (
     load_readout_task_manifest,
     save_pending_readout_submission,
     update_readout_task_manifest,

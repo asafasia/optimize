@@ -140,23 +140,3 @@ def _readout_intermediate_frequency(qubit: Any) -> float:
 def _readout_duration(qubit: Any) -> float:
     readout_pulse = qubit.pulses[SUPPORTED_PULSE_TYPES.readout][SUPPORTED_PULSE_SHAPES.const]
     return float(readout_pulse.readout_duration)
-
-
-
-if __name__== "__main__":
-    # Example usage of this module. Edit the profile and qubit name to your setup.
-    from resources.load_profile import load_profile
-
-    profile = load_profile("main_asaf")
-    result = create_static_readout_kernel_for_qubit(profile, "q8")
-    print(result.traces_path)
-    print(result.kernels_path)
-# Example:
-#
-# from resources.load_profile import load_profile
-# from optimize.readout.utils.static_kernels import create_static_readout_kernel_for_qubit
-#
-# profile = load_profile("main_asaf")
-# result = create_static_readout_kernel_for_qubit(profile, "q8")
-# print(result.traces_path)
-# print(result.kernels_path)

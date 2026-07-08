@@ -1,4 +1,4 @@
-from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
+from optimize.readout.optimizer.live_html_plotter import ReadoutLiveHtmlPlotter
 
 
 def test_fidelity_history_plots_are_generated_only_once(tmp_path, monkeypatch):

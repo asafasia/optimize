@@ -73,12 +73,12 @@ also runs Ruff and Gitleaks for teams that use `pre-commit`.
 Prefer explicit runner scripts over importing modules interactively. Examples:
 
 ```bash
-python3 run_with_workbench.py optimize/readout/scripts/run_all_qubits_report.py --help
-python3 run_with_workbench.py optimize/readout/scripts/run_all_qubit_iq_blobs.py --help
+python3 run_with_workbench.py optimize/readout/scripts/reports/all_qubits_report.py --help
+python3 run_with_workbench.py optimize/readout/scripts/validation/validate_optimizer_iq_sweep.py --help
 ```
 
 Reusable modules such as `optimize/readout/readout_workflow.py` and
-`optimize/readout/readout_amplitude_optimizer.py` are library code. Import their
+`optimize/readout/optimizer/amplitude_sweep.py` are library code. Import their
 classes from a runner or notebook; do not use them as ad-hoc executable files.
 
 ## Generated Artifacts

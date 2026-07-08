@@ -10,23 +10,23 @@ setup_workbench_environment()
 from matplotlib.figure import Figure
 from qratena.system.components_params.profile import Profile
 
-from optimize.readout.optimizer_figures import ReadoutFigureMixin
-from optimize.readout.optimizer_metrics import ReadoutMetricsMixin
-from optimize.readout.optimizer_settings import ReadoutAmplitudeSweepSettings
-from optimize.readout.profile_access import ReadoutProfileAccessMixin
+from optimize.readout.optimizer.figures import ReadoutFigureMixin
+from optimize.readout.optimizer.metrics import ReadoutMetricsMixin
+from optimize.readout.optimizer.settings import ReadoutAmplitudeSweepSettings
+from optimize.readout.optimizer.profile_access import ReadoutProfileAccessMixin
 from optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
 )
-from optimize.readout.submitted_runs import SubmittedReadoutRunMixin
-from optimize.readout.utils.readout_live_html_plotter import ReadoutLiveHtmlPlotter
-from optimize.readout.utils.readout_scan_methods import scan_method_for
-from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
-from optimize.readout.utils.readout_sweep_analysis import ReadoutAmplitudeSweepAnalysis
-from optimize.readout.utils.readout_sweep_artifacts import (
+from optimize.readout.optimizer.submitted_runs import SubmittedReadoutRunMixin
+from optimize.readout.optimizer.live_html_plotter import ReadoutLiveHtmlPlotter
+from optimize.readout.optimizer.scan_methods import scan_method_for
+from optimize.readout.optimizer.scan_types import ReadoutScanMethod
+from optimize.readout.optimizer.analysis import ReadoutAmplitudeSweepAnalysis
+from optimize.readout.optimizer.artifacts import (
     ReadoutAmplitudeSweepSaver,
     create_readout_run_dir,
 )
-from optimize.readout.utils.readout_sweep_plotter import ReadoutAmplitudeSweepPlotter
+from optimize.readout.optimizer.plotter import ReadoutAmplitudeSweepPlotter
 
 if TYPE_CHECKING:
     from qigeon.io.task_submitter import TaskSubmitterAsync
@@ -460,54 +460,3 @@ class ReadoutAmplitudeSweepWorkflow(
 
         bar = "#" * 30
         print(f"\rReadout optimization [{bar}] {total}/{total} (100.0%) complete")
-
-
-if __name__ == "__main__":
-    import numpy as np
-
-    from qratena.system.components_params.reset_settings import ResetSettings
-    from qratena.util.enums import ResetType
-
-    from optimize.readout.readout_amplitude_optimizer import (
-        ReadoutAmplitudeSweepSettings,
-        ReadoutAmplitudeSweepWorkflow,
-    )
-    from optimize.readout.readout_workflow import ReadoutFidelityWorkflowSettings
-    from optimize.readout.utils.readout_scan_types import ReadoutScanMethod
-    from resources.load_profile import load_profile, load_task_manager
-
-    profile = load_profile("main")
-    task_manager = load_task_manager()
-    
-    
-
-    workflow_settings = ReadoutFidelityWorkflowSettings(
-        profile_name="main",
-        do_emulation=False,
-        run_resonator=False,
-        run_kernels=True,
-        run_iq_blobs=True,
-        do_plotting=False,
-        show_handler_output=False,
-        low_priority_tasks=True,
-        states=["g", "e"],
-        reset=ResetSettings(reset_type=ResetType.ACTIVE, reset_num=5),
-    )
-
-    optimizer_settings = ReadoutAmplitudeSweepSettings(
-        amplitudes=np.linspace(0.005, 0.11, 30),
-        method=ReadoutScanMethod.SWEEP,
-        use_live_html_plotter=False,
-        workflow_settings=workflow_settings,
-        submit_only=True,
-    )
-
-    optimizer = ReadoutAmplitudeSweepWorkflow(
-        qubit_names=["q9", "q10", "q11", "q12", "q13", "q14", "q15", "q16", "q17", "q18","q19"],
-        profile=profile,
-        task_manager=task_manager,
-        settings=optimizer_settings,
-    )
-
-    optimizer.run()
-    print(optimizer.run_dir)

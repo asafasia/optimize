@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from optimize.readout import readout_workflow
+from optimize.readout import readout_workflow, workflow_handlers
 from optimize.readout.readout_workflow import (
     ReadoutFidelityWorkflow,
     ReadoutFidelityWorkflowSettings,
@@ -121,17 +121,17 @@ def test_resonator_runs_per_qubit_kernel_runs_once_for_all_qubits(monkeypatch):
             calls.append(("export_iq_blobs", tuple(self.qubit_names)))
 
     monkeypatch.setattr(
-        readout_workflow,
+        workflow_handlers,
         "ResonatorSpectroscopyHandler",
         FakeResonatorHandler,
     )
     monkeypatch.setattr(
-        readout_workflow,
+        workflow_handlers,
         "KernelTracesCalculationHandler",
         FakeKernelHandler,
     )
-    monkeypatch.setattr(readout_workflow, "IQBlobsHandler", FakeIQBlobsHandler)
-    monkeypatch.setattr(readout_workflow, "create_platform", lambda profile: FakePlatform())
+    monkeypatch.setattr(workflow_handlers, "IQBlobsHandler", FakeIQBlobsHandler)
+    monkeypatch.setattr(workflow_handlers, "create_platform", lambda profile: FakePlatform())
 
     qubit_names = ["q1", "q3"]
     profile = FakeProfile(qubit_names)
